@@ -1,0 +1,31 @@
+= Certificate for [333/106]_q (exact q-rational) =
+
+Input: the rational p/s = 333/106 = 333/106.
+
+(a) continued fraction and even-length MGO form
+    regular continued fraction: [3, 7, 15]
+    even-length MGO form:       [3, 7, 14, 1]
+    even-length form evaluates to the convergent 333/106
+
+(b) MGO formula folded step by step
+    odd positions carry [a]_q with q^a above; even positions
+    carry [a]_(q^-1) with q^-a above (MGO eqn 1.1).
+    innermost term a_4 = 1:  1
+    fold in a_3 = 14:  q**14 + q**13 + q**12 + q**11 + q**10 + q**9 + q**8 + q**7 + q**6 + q**5 + q**4 + q**3 + q**2 + q + 1
+    fold in a_2 = 7:  (q**21 + 2*q**20 + 3*q**19 + 4*q**18 + 5*q**17 + 6*q**16 + 7*q**15 + 7*q**14 + 7*q**13 + 7*q**12 + 7*q**11 + 7*q**10 + 7*q**9 + 7*q**8 + 7*q**7 + 6*q**6 + 5*q**5 + 4*q**4 + 3*q**3 + 2*q**2 + q + 1)/(q**21 + q**20 + q**19 + q**18 + q**17 + q**16 + q**15 + q**14 + q**13 + q**12 + q**11 + q**10 + q**9 + q**8 + q**7)
+    fold in a_1 = 3:  (q**24 + 2*q**23 + 4*q**22 + 7*q**21 + 10*q**20 + 13*q**19 + 16*q**18 + 19*q**17 + 21*q**16 + 22*q**15 + 22*q**14 + 22*q**13 + 22*q**12 + 22*q**11 + 22*q**10 + 21*q**9 + 20*q**8 + 18*q**7 + 15*q**6 + 12*q**5 + 9*q**4 + 6*q**3 + 4*q**2 + 2*q + 1)/(q**21 + 2*q**20 + 3*q**19 + 4*q**18 + 5*q**17 + 6*q**16 + 7*q**15 + 7*q**14 + 7*q**13 + 7*q**12 + 7*q**11 + 7*q**10 + 7*q**9 + 7*q**8 + 7*q**7 + 6*q**6 + 5*q**5 + 4*q**4 + 3*q**3 + 2*q**2 + q + 1)
+    [333/106]_q = (q**24 + 2*q**23 + 4*q**22 + 7*q**21 + 10*q**20 + 13*q**19 + 16*q**18 + 19*q**17 + 21*q**16 + 22*q**15 + 22*q**14 + 22*q**13 + 22*q**12 + 22*q**11 + 22*q**10 + 21*q**9 + 20*q**8 + 18*q**7 + 15*q**6 + 12*q**5 + 9*q**4 + 6*q**3 + 4*q**2 + 2*q + 1)/(q**21 + 2*q**20 + 3*q**19 + 4*q**18 + 5*q**17 + 6*q**16 + 7*q**15 + 7*q**14 + 7*q**13 + 7*q**12 + 7*q**11 + 7*q**10 + 7*q**9 + 7*q**8 + 7*q**7 + 6*q**6 + 5*q**5 + 4*q**4 + 3*q**3 + 2*q**2 + q + 1)
+    Taylor coefficients: 1 + q + q^2 + q^10 + O(q^12)
+
+(c) independent cross-checks
+    [pass] [333/106]_q at q=1 is 333/106, the ordinary value 333/106
+    [pass] the Taylor expansion of the exact rational function and the truncated series agree on q^0..q^11: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+    summary: verified: q=1 matches 333/106, exact = truncated to 12
+
+References
+    S. Morier-Genoud and V. Ovsienko, q-deformed rationals and
+    q-continued fractions, Forum Math. Sigma 8 (2020), e13.
+    Per-function theorem and check mapping: docs/CORRECTNESS.md.
+
+This is a human-auditable derivation, not a formal machine proof;
+every line above is checkable by hand.

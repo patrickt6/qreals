@@ -1,0 +1,114 @@
+[project]
+name = "qreals"
+version = "0.1.0"
+description = "q-deformed rationals and reals via MGO continued fractions"
+authors = [{name = "Patrick Taylor", email = "caymentechnologies@gmail.com"}]
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+keywords = [
+    "q-analog",
+    "q-deformation",
+    "q-rationals",
+    "q-reals",
+    "continued-fractions",
+    "number-theory",
+    "combinatorics",
+    "mathematics",
+    "sympy",
+    "MGO",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Typing :: Typed",
+]
+dependencies = [
+    "sympy>=1.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/patrickt6/qreals"
+Source = "https://github.com/patrickt6/qreals"
+Issues = "https://github.com/patrickt6/qreals/issues"
+Documentation = "https://github.com/patrickt6/qreals/tree/main/docs"
+Changelog = "https://github.com/patrickt6/qreals/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+# The interactive menu and the saved-list workflow. Core stays at sympy only;
+# install qreals[app] for the arrow-key interface. platformdirs places the saved
+# list in the per-user data directory; without it the store falls back to the
+# same per-OS location computed with the standard library.
+app = ["questionary>=2", "rich>=13", "platformdirs>=3"]
+# Certificates: the full step-by-step derivation in the terminal or as a PDF.
+# The inline verification stamp needs none of this; it is core (sympy only).
+# rich formats the terminal certificate; PDF output needs a TeX engine on PATH
+# (pdflatex, tectonic, or latexmk), which is not a Python dependency.
+proof = ["rich>=13"]
+# OEIS lookup (qreals.oeis): the one network helper. Core never imports requests;
+# it is loaded lazily only when a lookup actually runs.
+oeis = ["requests>=2"]
+# The fixed-length fingerprint (qreals.featurize) builds in pure Python; numpy is
+# the only optional dependency, used by Fingerprint.as_numpy for vector work.
+features = ["numpy>=1.21"]
+# The documentation site: mkdocs-material for the pages, mkdocstrings for the
+# API reference generated from the docstrings. Not needed to use qreals.
+docs = ["mkdocs-material>=9", "mkdocstrings[python]>=0.24"]
+dev = [
+    "pytest>=7",
+    "ruff",
+    "mypy>=1.8",
+    "questionary>=2",
+    "rich>=13",
+    "requests>=2",
+    "numpy>=1.21",
+    "platformdirs>=3",
+]
+
+[project.scripts]
+qreals = "qreals.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qreals"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra -q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.mypy]
+files = ["src/qreals"]
+python_version = "3.11"
+strict = true
+
+# The runtime dependency (sympy) and the optional extras (questionary, rich,
+# requests, numpy) ship no type stubs, and qprov is an optional peer. Treat
+# their imports as untyped rather than failing on the missing stubs; the qreals
+# code itself is checked at full strictness.
+[[tool.mypy.overrides]]
+module = [
+    "sympy.*",
+    "questionary.*",
+    "rich.*",
+    "requests.*",
+    "numpy.*",
+    "platformdirs.*",
+    "qprov",
+]
+ignore_missing_imports = true

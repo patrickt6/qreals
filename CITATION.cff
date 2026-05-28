@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "qreals: q-deformed rationals and reals via MGO continued fractions"
+abstract: >-
+  A pure-Python implementation of the Morier-Genoud-Ovsienko (MGO)
+  construction of q-deformed rational and real numbers. It computes the exact
+  q-rational [p/s]_q as a rational function in q, and the first N stable Taylor
+  coefficients of [x]_q for any real x, with exact integer coefficients.
+type: software
+authors:
+  - family-names: Taylor
+    given-names: Patrick
+    email: caymentechnologies@gmail.com
+version: 0.1.0
+date-released: 2026-05-24
+license: MIT
+repository-code: "https://github.com/patrickt6/qreals"
+url: "https://github.com/patrickt6/qreals"
+keywords:
+  - q-deformed numbers
+  - q-analogs
+  - continued fractions
+  - Morier-Genoud-Ovsienko
+  - number theory
+  - computer algebra
+references:
+  - type: article
+    title: "q-deformed rationals and q-continued fractions"
+    authors:
+      - family-names: Morier-Genoud
+        given-names: Sophie
+      - family-names: Ovsienko
+        given-names: Valentin
+    journal: "Forum of Mathematics, Sigma"
+    volume: 8
+    year: 2020
+    notes: "e13; the construction this package implements (Definition 1.1, Proposition 1.1)."

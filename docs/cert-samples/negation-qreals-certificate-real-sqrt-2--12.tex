@@ -1,0 +1,127 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[margin=2cm]{geometry}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{pdflscape}
+\usepackage{breqn}
+\title{Certificate for [sqrt(2)]\_q (first 12 coefficients)}
+\author{qreals certificate}
+\date{\today}
+\begin{document}
+\maketitle
+
+\noindent Input: the real number x = sqrt(2). The continued fraction is truncated to the depth that locks the first 12 coefficients (MGO Proposition 1.1).
+
+\section*{(a) Continued fraction and even-length MGO form}
+Regular continued fraction: [1, 2, 2, 2, 2, 2, 2]. \par
+Even-length MGO form: [1, 2, 2, 2, 2, 2, 1, 1]. \par
+The even-length form evaluates to the convergent $ \frac{239}{169} $.\par
+
+\section*{(b) MGO formula folded step by step}
+Odd positions carry $[a]_q$ with $q^a$ above; even positions carry
+$[a]_{q^{-1}}$ with $q^{-a}$ above (MGO eqn.~1.1).
+
+\noindent\textbf{innermost term a\_8 = 1:}
+{\footnotesize%
+\begin{dmath*}
+1
+\end{dmath*}
+}
+
+\noindent\textbf{fold in a\_7 = 1:}
+{\footnotesize%
+\begin{dmath*}
+q + 1
+\end{dmath*}
+}
+
+\noindent\textbf{fold in a\_6 = 2:}
+{\footnotesize%
+\begin{dmath*}
+\frac{q^{3} + 2 q^{2} + q + 1}{q^{3} + q^{2}}
+\end{dmath*}
+}
+
+\noindent\textbf{fold in a\_5 = 2:}
+{\footnotesize%
+\begin{dmath*}
+\frac{q^{5} + 2 q^{4} + 3 q^{3} + 3 q^{2} + 2 q + 1}{q^{3} + 2 q^{2} + q + 1}
+\end{dmath*}
+}
+
+\noindent\textbf{fold in a\_4 = 2:}
+{\footnotesize%
+\begin{dmath*}
+\frac{q^{7} + 3 q^{6} + 5 q^{5} + 6 q^{4} + 6 q^{3} + 5 q^{2} + 2 q + 1}{q^{7} + 2 q^{6} + 3 q^{5} + 3 q^{4} + 2 q^{3} + q^{2}}
+\end{dmath*}
+}
+
+\noindent\textbf{fold in a\_3 = 2:}
+{\footnotesize%
+\begin{dmath*}
+\frac{q^{9} + 3 q^{8} + 7 q^{7} + 11 q^{6} + 13 q^{5} + 13 q^{4} + 11 q^{3} + 7 q^{2} + 3 q + 1}{q^{7} + 3 q^{6} + 5 q^{5} + 6 q^{4} + 6 q^{3} + 5 q^{2} + 2 q + 1}
+\end{dmath*}
+}
+
+\noindent\textbf{fold in a\_2 = 2:}
+{\footnotesize%
+\begin{dmath*}
+\frac{q^{11} + 4 q^{10} + 10 q^{9} + 18 q^{8} + 25 q^{7} + 29 q^{6} + 29 q^{5} + 24 q^{4} + 16 q^{3} + 9 q^{2} + 3 q + 1}{q^{11} + 3 q^{10} + 7 q^{9} + 11 q^{8} + 13 q^{7} + 13 q^{6} + 11 q^{5} + 7 q^{4} + 3 q^{3} + q^{2}}
+\end{dmath*}
+}
+
+\noindent\textbf{fold in a\_1 = 1:}
+\noindent The value is the ratio $N(q)/D(q)$ with:\par
+{\footnotesize%
+\begin{dmath*}
+N(q) = q^{12} + 4 q^{11} + 11 q^{10} + 21 q^{9} + 31 q^{8} + 38 q^{7} + 40 q^{6} + 36 q^{5} + 27 q^{4} + 17 q^{3} + 9 q^{2} + 3 q + 1
+\end{dmath*}
+}
+
+{\footnotesize%
+\begin{dmath*}
+D(q) = q^{11} + 4 q^{10} + 10 q^{9} + 18 q^{8} + 25 q^{7} + 29 q^{6} + 29 q^{5} + 24 q^{4} + 16 q^{3} + 9 q^{2} + 3 q + 1
+\end{dmath*}
+}
+
+\noindent\textbf{Result.} [239/169]\_q (the convergent, whose Taylor expansion gives [x]\_q):
+\noindent The value is the ratio $N(q)/D(q)$ with:\par
+{\footnotesize%
+\begin{dmath*}
+N(q) = q^{12} + 4 q^{11} + 11 q^{10} + 21 q^{9} + 31 q^{8} + 38 q^{7} + 40 q^{6} + 36 q^{5} + 27 q^{4} + 17 q^{3} + 9 q^{2} + 3 q + 1
+\end{dmath*}
+}
+
+{\footnotesize%
+\begin{dmath*}
+D(q) = q^{11} + 4 q^{10} + 10 q^{9} + 18 q^{8} + 25 q^{7} + 29 q^{6} + 29 q^{5} + 24 q^{4} + 16 q^{3} + 9 q^{2} + 3 q + 1
+\end{dmath*}
+}
+
+\noindent Taylor coefficients:
+{\small%
+\begin{dmath*}
+1 + q^{3} - 2 q^{5} + q^{6} + 4 q^{7} - 5 q^{8} - 7 q^{9} + 18 q^{10} + 7 q^{11} + O(q^{12})
+\end{dmath*}
+}
+
+\section*{(c) Independent cross-checks}
+\begin{itemize}
+\item \textbf{[pass]} the first 12 coefficients are unchanged when 16 are asked for
+\item \textbf{[pass]} [x+1]\_q computed from its own continued fraction equals q*[x]\_q + 1
+\item \textbf{[na]} the series [sqrt(2)]\_q diverges at q=1; q=1 is for rationals
+\item \textbf{[na]} sqrt(2) is irrational, so the continued fraction does not terminate
+\end{itemize}
+Summary: verified: truncation stable to 12, shift law [x+1]=q[x]+1; n/a: q=1 specialisation; exact rational function.
+
+\section*{References}
+S. Morier-Genoud and V. Ovsienko, q-deformed rationals and q-continued
+fractions, Forum Math. Sigma \textbf{8} (2020), e13. Per-function theorem and
+check mapping: \texttt{docs/CORRECTNESS.md}.
+
+\medskip
+\noindent This is a human-auditable derivation, not a formal machine proof;
+every line above is checkable by hand.
+\end{document}

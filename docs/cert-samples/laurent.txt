@@ -1,0 +1,37 @@
+= Certificate for [sqrt(2)]_q (first 13 coefficients) =
+
+Input: the real number x = sqrt(2). The continued fraction is truncated to the depth that locks the first 13 coefficients (MGO Proposition 1.1).
+
+(a) continued fraction and even-length MGO form
+    regular continued fraction: [1, 2, 2, 2, 2, 2, 2, 2]
+    even-length MGO form:       [1, 2, 2, 2, 2, 2, 2, 2]
+    even-length form evaluates to the convergent 577/408
+
+(b) MGO formula folded step by step
+    odd positions carry [a]_q with q^a above; even positions
+    carry [a]_(q^-1) with q^-a above (MGO eqn 1.1).
+    innermost term a_8 = 2:  (q + 1)/q
+    fold in a_7 = 2:  (q**3 + q**2 + 2*q + 1)/(q + 1)
+    fold in a_6 = 2:  (q**5 + 2*q**4 + 3*q**3 + 3*q**2 + 2*q + 1)/(q**5 + q**4 + 2*q**3 + q**2)
+    fold in a_5 = 2:  (q**7 + 2*q**6 + 5*q**5 + 6*q**4 + 6*q**3 + 5*q**2 + 3*q + 1)/(q**5 + 2*q**4 + 3*q**3 + 3*q**2 + 2*q + 1)
+    fold in a_4 = 2:  (q**9 + 3*q**8 + 7*q**7 + 11*q**6 + 13*q**5 + 13*q**4 + 11*q**3 + 7*q**2 + 3*q + 1)/(q**9 + 2*q**8 + 5*q**7 + 6*q**6 + 6*q**5 + 5*q**4 + 3*q**3 + q**2)
+    fold in a_3 = 2:  (q**11 + 3*q**10 + 9*q**9 + 16*q**8 + 24*q**7 + 29*q**6 + 29*q**5 + 25*q**4 + 18*q**3 + 10*q**2 + 4*q + 1)/(q**9 + 3*q**8 + 7*q**7 + 11*q**6 + 13*q**5 + 13*q**4 + 11*q**3 + 7*q**2 + 3*q + 1)
+    fold in a_2 = 2:  (q**13 + 4*q**12 + 12*q**11 + 25*q**10 + 41*q**9 + 56*q**8 + 65*q**7 + 65*q**6 + 56*q**5 + 41*q**4 + 25*q**3 + 12*q**2 + 4*q + 1)/(q**13 + 3*q**12 + 9*q**11 + 16*q**10 + 24*q**9 + 29*q**8 + 29*q**7 + 25*q**6 + 18*q**5 + 10*q**4 + 4*q**3 + q**2)
+    fold in a_1 = 1:  (q**14 + 4*q**13 + 13*q**12 + 28*q**11 + 49*q**10 + 70*q**9 + 85*q**8 + 90*q**7 + 83*q**6 + 66*q**5 + 45*q**4 + 26*q**3 + 12*q**2 + 4*q + 1)/(q**13 + 4*q**12 + 12*q**11 + 25*q**10 + 41*q**9 + 56*q**8 + 65*q**7 + 65*q**6 + 56*q**5 + 41*q**4 + 25*q**3 + 12*q**2 + 4*q + 1)
+    [577/408]_q (the convergent, whose Taylor expansion gives [x]_q) = (q**14 + 4*q**13 + 13*q**12 + 28*q**11 + 49*q**10 + 70*q**9 + 85*q**8 + 90*q**7 + 83*q**6 + 66*q**5 + 45*q**4 + 26*q**3 + 12*q**2 + 4*q + 1)/(q**13 + 4*q**12 + 12*q**11 + 25*q**10 + 41*q**9 + 56*q**8 + 65*q**7 + 65*q**6 + 56*q**5 + 41*q**4 + 25*q**3 + 12*q**2 + 4*q + 1)
+    Taylor coefficients: 1 + q^3 - 2*q^5 + q^6 + 4*q^7 - 5*q^8 - 7*q^9 + 18*q^10 + 7*q^11 - 55*q^12 + O(q^13)
+
+(c) independent cross-checks
+    [pass] the first 13 coefficients are unchanged when 17 are asked for
+    [pass] [x+1]_q computed from its own continued fraction equals q*[x]_q + 1
+    [n/a]  the series [sqrt(2)]_q diverges at q=1; q=1 is for rationals
+    [n/a]  sqrt(2) is irrational, so the continued fraction does not terminate
+    summary: verified: truncation stable to 13, shift law [x+1]=q[x]+1; n/a: q=1 specialisation; exact rational function
+
+References
+    S. Morier-Genoud and V. Ovsienko, q-deformed rationals and
+    q-continued fractions, Forum Math. Sigma 8 (2020), e13.
+    Per-function theorem and check mapping: docs/CORRECTNESS.md.
+
+This is a human-auditable derivation, not a formal machine proof;
+every line above is checkable by hand.

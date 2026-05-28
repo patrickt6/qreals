@@ -1,0 +1,6 @@
+# Binder (mybinder.org) builds this repository into a live notebook environment.
+# Installing the package here makes `import qreals` work in the quickstart
+# notebook with no in-notebook install step. The notebook uses only core
+# (sympy-only) functions; the [app] extra is included so the interactive
+# `qreals` menu also runs in a Binder terminal.
+.[app]

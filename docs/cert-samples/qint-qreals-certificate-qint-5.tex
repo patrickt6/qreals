@@ -1,0 +1,62 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[margin=2cm]{geometry}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{pdflscape}
+\usepackage{breqn}
+\title{Certificate for the q-integer [5]\_q}
+\author{qreals certificate}
+\date{\today}
+\begin{document}
+\maketitle
+
+\noindent Input: the integer n = 5.
+
+\section*{(a) Continued fraction and even-length MGO form}
+Regular continued fraction: [5]. \par
+Even-length MGO form: [5]. \par
+The even-length form evaluates to the convergent $ 5 $.\par
+
+\section*{(b) MGO formula folded step by step}
+Odd positions carry $[a]_q$ with $q^a$ above; even positions carry
+$[a]_{q^{-1}}$ with $q^{-a}$ above (MGO eqn.~1.1).
+
+\noindent\textbf{[5]\_q is the Gauss q-integer 1 + q + ... + q\textasciicircum{}(n-1):}
+{\footnotesize%
+\begin{dmath*}
+q^{4} + q^{3} + q^{2} + q + 1
+\end{dmath*}
+}
+
+\noindent\textbf{Result.} [5]\_q:
+{\footnotesize%
+\begin{dmath*}
+q^{4} + q^{3} + q^{2} + q + 1
+\end{dmath*}
+}
+
+\noindent Taylor coefficients:
+{\small%
+\begin{dmath*}
+1 + q + q^{2} + q^{3} + q^{4} + O(q^{12})
+\end{dmath*}
+}
+
+\section*{(c) Independent cross-checks}
+\begin{itemize}
+\item \textbf{[pass]} [5]\_q at q=1 is 5, the ordinary value 5
+\item \textbf{[pass]} the Taylor expansion of the exact rational function and the truncated series agree on q\textasciicircum{}0..q\textasciicircum{}11: [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+\end{itemize}
+Summary: verified: q=1 matches 5, exact = truncated to 12.
+
+\section*{References}
+S. Morier-Genoud and V. Ovsienko, q-deformed rationals and q-continued
+fractions, Forum Math. Sigma \textbf{8} (2020), e13. Per-function theorem and
+check mapping: \texttt{docs/CORRECTNESS.md}.
+
+\medskip
+\noindent This is a human-auditable derivation, not a formal machine proof;
+every line above is checkable by hand.
+\end{document}
