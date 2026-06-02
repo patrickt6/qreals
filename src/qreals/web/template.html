@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qreals calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script>
+window.MathJax = {
+  tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+  svg: { fontCache: "global" },
+  options: { skipHtmlTags: ["script","noscript","style","textarea","pre","code"] }
+};
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>__CSS__</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <button class="brand" id="brand" type="button" aria-label="qreals home">
+      <span class="mark">q<sub>q</sub></span><span>qreals</span>
+    </button>
+    <span class="nav-spacer"></span>
+    <button class="nav-saved" id="navWorkspace" type="button">Workspace <span id="navWsCount">0</span></button>
+    <button class="nav-saved" id="navHistory" type="button">History</button>
+    <button class="nav-saved" id="navProfile" type="button">Profile</button>
+    <button class="nav-saved" id="navSaved" type="button">Saved <span id="navCount">0</span></button>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <!-- home -->
+  <section id="home">
+    <div class="page-head">
+      <span class="eyebrow">Calculator</span>
+      <h1>q-deformed rationals and reals</h1>
+      <p class="lede">Pick an operation, fill in its inputs, and read the answer in
+        typeset math. Every card runs the same engine as the
+        <code style="font-family:var(--mono)">qreals</code> command line. Keep any
+        result and it stays in your browser.</p>
+    </div>
+    <div class="home-finder">
+      <input id="toolSearch" type="text" placeholder="Search tools… (e.g. frieze, exact, roots)" spellcheck="false">
+      <nav class="group-jump" id="groupJump"></nav>
+    </div>
+    <div id="cards"></div>
+
+    <div class="saved-panel" id="savedHome"></div>
+  </section>
+
+  <!-- per-operation view -->
+  <section id="opView" class="hidden">
+    <button class="back" id="backBtn" type="button">&larr; All operations</button>
+    <div class="op-layout">
+      <div class="panel" id="formPanel"></div>
+      <div class="panel">
+        <p class="rlabel">Result</p>
+        <div class="result" id="result">
+          <div class="empty">Fill in the inputs and press Compute.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- saved-only view -->
+  <section id="savedView" class="hidden">
+    <button class="back" id="backBtn2" type="button">&larr; All operations</button>
+    <div class="saved-panel" id="savedFull"></div>
+  </section>
+
+  <!-- workspace = expanded editable compare -->
+  <section id="workspaceView" class="hidden">
+    <div class="ws-bar">
+      <button class="back" id="backBtn3" type="button">&larr; All operations</button>
+      <button class="mini" id="wsShare" type="button">Share</button>
+      <span class="ws-hint">Your compare items, full detail. Edit any tile; it recomputes live. Press &times; to remove.</span>
+    </div>
+    <div class="ws-grid" id="wsGrid" data-count="0"></div>
+    <div class="saved-empty" id="wsEmpty">Nothing to compare yet. Compute something and
+      press <b>Add to compare</b>, then Expand.</div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>qreals serve &middot; a local web app over the qreals engine</span>
+    <span><a href="https://github.com/patrickt6/qreals">github.com/patrickt6/qreals</a></span>
+  </div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-backdrop hidden" id="startupBackdrop">
+  <div class="modal startup-modal" id="startupModal" role="dialog" aria-modal="true">
+    <div class="startup-brand"><span class="mark">q<sub>q</sub></span><span>qreals</span></div>
+    <h2 id="startupTitle">Choose a profile</h2>
+    <div class="profile-list" id="profileList"></div>
+    <div class="startup-actions" id="startupActions">
+      <button class="go" id="newProfileBtn" type="button">New profile</button>
+      <button class="linkbtn" id="guestBtn" type="button">Continue as guest</button>
+    </div>
+    <div class="profile-io" id="profileIo"><button class="linkbtn" id="exportProfileBtn" type="button">Export profile</button>
+      <button class="linkbtn" id="importProfileBtn" type="button">Import profile</button>
+      <button class="linkbtn" id="openSharedBtn" type="button">Open shared link</button>
+      <input type="file" id="importProfileFile" accept=".json,application/json" hidden></div>
+    <div class="appearance-row" id="appearanceRow">
+      <div class="seg">
+        <span class="seg-label">Theme</span>
+        <div class="seg-btns" id="apThemeBtns" role="group" aria-label="Theme">
+          <button class="seg-opt" data-theme="light" type="button"><span class="sw" data-sw="light"></span>Light</button>
+          <button class="seg-opt" data-theme="dark" type="button"><span class="sw" data-sw="dark"></span>Dark</button>
+          <button class="seg-opt" data-theme="solarized" type="button"><span class="sw" data-sw="solarized"></span>Solarized</button>
+        </div>
+      </div>
+      <div class="seg">
+        <span class="seg-label">Text size</span>
+        <div class="seg-btns" id="apSizeBtns" role="group" aria-label="Text size">
+          <button class="seg-opt seg-size" data-size="s" type="button">S</button>
+          <button class="seg-opt seg-size" data-size="m" type="button">M</button>
+          <button class="seg-opt seg-size" data-size="l" type="button">L</button>
+        </div>
+      </div>
+    </div>
+    <div class="startup-create hidden" id="startupCreate">
+      <input id="cpName" type="text" placeholder="Profile name" spellcheck="false">
+      <div class="seg">
+        <span class="seg-label">Theme</span>
+        <div class="seg-btns" id="cpThemeBtns" role="group" aria-label="Theme">
+          <button class="seg-opt" data-theme="light" type="button"><span class="sw" data-sw="light"></span>Light</button>
+          <button class="seg-opt" data-theme="dark" type="button"><span class="sw" data-sw="dark"></span>Dark</button>
+          <button class="seg-opt" data-theme="solarized" type="button"><span class="sw" data-sw="solarized"></span>Solarized</button>
+        </div>
+      </div>
+      <div class="seg">
+        <span class="seg-label">Text size</span>
+        <div class="seg-btns" id="cpSizeBtns" role="group" aria-label="Text size">
+          <button class="seg-opt seg-size" data-size="s" type="button">S</button>
+          <button class="seg-opt seg-size" data-size="m" type="button">M</button>
+          <button class="seg-opt seg-size" data-size="l" type="button">L</button>
+        </div>
+      </div>
+      <div class="startup-actions"><button class="go" id="cpCreate" type="button">Create</button>
+        <button class="linkbtn" id="cpCancel" type="button">Cancel</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="cmp-tray hidden" id="cmpTray">
+  <div class="cmp-tray-head">
+    <span class="cmp-tray-title">Compare <span id="cmpTrayCount">0</span></span>
+    <button class="mini" id="cmpTrayExpand" type="button">Expand</button>
+    <button class="mini" id="cmpTrayClear" type="button">Clear</button>
+    <button class="mini" id="cmpTrayShare" type="button">Share</button>
+  </div>
+  <div class="cmp-tray-items" id="cmpTrayItems"></div>
+  <div class="cmp-tray-diff" id="cmpTrayDiff"></div>
+</div>
+
+<div class="modal-backdrop hidden" id="receiveBackdrop"><div class="modal" id="receiveModal" role="dialog" aria-modal="true">
+  <h2>Open a shared comparison</h2><div id="receiveList"></div>
+  <p class="recompute-note">These will be recomputed locally by your engine — nothing here is taken on trust.</p>
+  <div class="startup-actions"><button class="go" id="receiveReproduce" type="button">Reproduce</button>
+  <button class="linkbtn" id="receiveCancel" type="button">Cancel</button></div>
+</div></div>
+
+<div class="share-menu hidden" id="shareMenu">
+  <button class="share-item" data-share="link" type="button">Copy share link</button>
+  <button class="share-item" data-share="email" type="button">Email&hellip;</button>
+  <button class="share-item" data-share="qreals" type="button">Download .qreals</button>
+  <button class="share-item" data-share="pdf" type="button">Export PDF</button>
+  <button class="share-item" data-share="tex" type="button">Export LaTeX (.tex)</button>
+  <button class="share-item" data-share="overleaf" type="button">Open in Overleaf</button>
+  <button class="share-item" data-share="bibtex" type="button">Cite (BibTeX)</button>
+  <button class="share-item" data-share="html" type="button">Published HTML</button>
+</div>
+
+<div id="printRoot" class="print-root"></div>
+
+<div class="drawer hidden" id="historyDrawer">
+  <div class="drawer-head"><span class="drawer-title">History</span>
+    <button class="mini" id="historyClear" type="button">Clear</button>
+    <button class="mini" id="historyClose" type="button">Close</button></div>
+  <div class="drawer-body" id="historyList"></div>
+</div>
+
+<div class="palette-backdrop hidden" id="palette"><div class="palette-box" role="dialog" aria-modal="true">
+  <input id="paletteInput" type="text" placeholder="Type a command or tool…" spellcheck="false">
+  <div class="palette-list" id="paletteList"></div>
+</div></div>
+
+<script type="module">__JS__</script>
+</body>
+</html>
