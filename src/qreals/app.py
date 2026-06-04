@@ -419,6 +419,337 @@ def compute_factor(a: int, b: int) -> Result:
     }
 
 
+def compute_sprops(a: int, b: int) -> Result:
+    """The mathematical properties of the denominator S(q) of [a/b]_q.
+
+    The factor tool surfaces the numerator R(q) but says little about the
+    denominator S(q); this analyzes S directly. S is the q-denominator;
+    when it is a squarefree product of cyclotomics S = prod_{k in T} Phi_k it
+    divides [n]_q iff the saturation index e* = lcm(T) divides n, so e* is the
+    minimal n that makes the difference of equal-tail q-rationals finite. The
+    degree obeys deg S <= d-1 with equality iff S = [d]_q iff a == +/-1 (mod d);
+    S(1) = d and S(0) = 1 are built-in invariants; S can be the full [d]_q, a
+    proper cyclotomic collapse, or the impossibility branch (non-squarefree or
+    non-cyclotomic, dividing no [n]_q).
+    """
+    from .factor import s_properties
+
+    p = s_properties((a, b))
+
+    if p.saturation_index is None:
+        if not p.is_cyclotomic:
+            kind_str = "non-cyclotomic (no finite difference)"
+        else:
+            kind_str = "non-squarefree (impossibility branch)"
+        sat_str = "none: S divides no [n]_q"
+    elif p.is_full_qint:
+        kind_str = "full q-integer [d]_q (no collapse)"
+        sat_str = f"n = {p.saturation_index} = d (minimal)"
+    else:
+        kind_str = "proper cyclotomic collapse"
+        sat_str = f"n = {p.saturation_index} (minimal)"
+
+    t_str = (
+        "{" + ", ".join(str(k) for k in p.index_set_T) + "}"
+        if p.index_set_T
+        else "empty"
+    )
+    return {
+        "kind": "sprops",
+        "title": f"denominator S(q) of [{a}/{b}]_q: cyclotomic structure",
+        "blocks": [
+            {"kind": "poly", "label": f"S(q) denominator of [{a}/{b}]_q", "text": p.S_str},
+            {
+                "kind": "kv",
+                "pairs": [
+                    ("kind of S", kind_str),
+                    ("cyclotomic index set T", t_str),
+                    (
+                        "saturation index e* = lcm(T)",
+                        str(p.saturation_index) if p.saturation_index else "undefined",
+                    ),
+                    ("minimal n with S | [n]_q", sat_str),
+                    ("deg S", f"{p.deg_S}  (bound d-1 = {p.deg_bound})"),
+                    (
+                        "deg S = d-1 (so S = [d]_q)",
+                        "yes" if p.saturates_bound else "no",
+                    ),
+                    (
+                        "equality locus a == +/-1 (mod d)",
+                        f"a mod d = {p.a_mod_d}, "
+                        + ("on locus" if p.equality_locus else "off locus"),
+                    ),
+                    ("S(1) = d invariant", f"S(1) = {p.S_at_1}  ({'ok' if p.S_at_1_ok else 'FAIL'})"),
+                    ("S(0) = 1 invariant", f"S(0) = {p.S_at_0}  ({'ok' if p.S_at_0_ok else 'FAIL'})"),
+                    ("S is squarefree", "yes" if p.is_squarefree else "no"),
+                    ("S is a product of cyclotomics", "yes" if p.is_cyclotomic else "no"),
+                ],
+            },
+            {
+                "kind": "note",
+                "text": (
+                    "S(q) divides [n]_q exactly when S is a squarefree product of "
+                    "cyclotomics and lcm of its indices divides n; then the difference "
+                    "of two equal-tail q-rationals over S is a finite Laurent "
+                    "polynomial at every multiple of e*. A non-squarefree S (e.g. 3/8 "
+                    "gives Phi_2^2 Phi_4) or a non-cyclotomic S (e.g. 2/15) divides no "
+                    "[n]_q, so that difference is never finite. deg S = d-1 picks out "
+                    "exactly S = [d]_q, the a == +/-1 (mod d) tails."
+                ),
+            },
+        ],
+        "data": {
+            "a": p.a,
+            "d": p.d,
+            "S": p.S_str,
+            "index_set_T": p.index_set_T,
+            "multiplicities": {str(k): e for k, e in p.multiplicities.items()},
+            "is_cyclotomic": p.is_cyclotomic,
+            "is_squarefree": p.is_squarefree,
+            "saturation_index": p.saturation_index,
+            "minimal_saturating_n": p.minimal_saturating_n,
+            "deg_S": p.deg_S,
+            "deg_bound": p.deg_bound,
+            "saturates_bound": p.saturates_bound,
+            "is_full_qint": p.is_full_qint,
+            "is_collapse": p.is_collapse,
+            "S_at_1": p.S_at_1,
+            "S_at_1_ok": p.S_at_1_ok,
+            "S_at_0": p.S_at_0,
+            "S_at_0_ok": p.S_at_0_ok,
+            "a_mod_d": p.a_mod_d,
+            "equality_locus": p.equality_locus,
+        },
+    }
+
+
+def _t_set_str(indices: list[int]) -> str:
+    """Render a cyclotomic index set T as {k, ...} or 'empty'."""
+    return "{" + ", ".join(str(k) for k in indices) + "}" if indices else "empty"
+
+
+_ATLAS_MAX_ROWS = 80  # cap the per-fraction CLI table; the summary stays full
+
+
+def compute_satlas(d_max: int, a_max: int | None = None) -> Result:
+    """The S(q) cyclotomic-factor atlas over the coprime (a, d) grid.
+
+    For every proper fraction a/d (0 < a/d < 1) up to the bounds this reports
+    the regime of the q-denominator S(q): the full [d]_q, a proper cyclotomic
+    collapse, or the impossibility branch (non-squarefree like 3/8, or
+    non-cyclotomic like 2/15). A regime tally and a count of how often each
+    Phi_k appears make Remark 2 (S is a subset product of the cyclotomic factors
+    of [d]_q) visible as d grows.
+    """
+    from .factor import REGIME_LABELS, REGIME_ORDER, s_atlas
+
+    atlas = s_atlas(d_max, a_max)
+    cells = atlas["cells"]
+
+    count_rows = [
+        [REGIME_LABELS[r], str(atlas["regime_counts"][r])] for r in REGIME_ORDER
+    ]
+    index_rows = [
+        [f"Phi_{k}", str(n)] for k, n in atlas["index_appearances"].items()
+    ]
+    cell_rows = [
+        [
+            f"{c['a']}/{c['d']}",
+            REGIME_LABELS[c["regime"]],
+            _t_set_str(c["T"]),
+            f"{c['deg_S']}/{c['deg_bound']}",
+            str(c["saturation_index"]) if c["saturation_index"] else "-",
+        ]
+        for c in cells[:_ATLAS_MAX_ROWS]
+    ]
+    truncated = len(cells) > _ATLAS_MAX_ROWS
+    bound_str = f"d <= {d_max}" + (f", a <= {a_max}" if a_max else "")
+    blocks: list[dict[str, Any]] = [
+        {
+            "kind": "kv",
+            "pairs": [
+                ("grid", f"{bound_str}, proper coprime fractions 0 < a/d < 1"),
+                ("fractions", str(len(cells))),
+            ],
+        },
+        {
+            "kind": "table",
+            "columns": ["regime", "count"],
+            "rows": count_rows,
+        },
+        {
+            "kind": "table",
+            "columns": ["cyclotomic factor", "appearances"],
+            "rows": index_rows,
+        },
+        {
+            "kind": "table",
+            "columns": ["a/d", "regime", "T", "deg S/(d-1)", "e*"],
+            "rows": cell_rows,
+        },
+    ]
+    if truncated:
+        blocks.append(
+            {
+                "kind": "note",
+                "text": (
+                    f"per-fraction table truncated to the first {_ATLAS_MAX_ROWS} of "
+                    f"{len(cells)} fractions; the regime tally above covers all of "
+                    "them. Use --json for the full grid, or the web atlas for the "
+                    "coloured heat map."
+                ),
+            }
+        )
+    blocks.append(
+        {
+            "kind": "note",
+            "text": (
+                "the two saturating regimes (full [d]_q and proper collapse) are the "
+                "squarefree-cyclotomic S that divide [n]_q at n = e* = lcm(T); the "
+                "two impossibility regimes (non-squarefree, non-cyclotomic) divide no "
+                "[n]_q. The a == +/-1 (mod d) locus is exactly the full [d]_q cells."
+            ),
+        }
+    )
+    return {
+        "kind": "satlas",
+        "title": f"S(q) cyclotomic-factor atlas  ({bound_str})",
+        "blocks": blocks,
+        "data": atlas,
+    }
+
+
+def compute_saturation(d: int) -> Result:
+    """The saturation index e* and minimal saturating n as a ranges over a/d.
+
+    For a fixed denominator d this sweeps every numerator a coprime to d and
+    reports e*(a/d) = lcm(T), the minimal n with S | [n]_q, and the regime,
+    flagging the impossibility residues that have no finite n. This is the
+    Saturation box read across a whole denominator: e* is the least n making the
+    difference of two equal-tail q-rationals over S a finite Laurent polynomial.
+    """
+    from .factor import REGIME_LABELS, saturation_explorer
+
+    ex = saturation_explorer(d)
+    points = ex["points"]
+    rows = [
+        [
+            f"{pt['a']}/{d}",
+            str(pt["a_mod_d"]),
+            REGIME_LABELS[pt["regime"]],
+            str(pt["e_star"]) if pt["e_star"] is not None else "none (no finite n)",
+            _t_set_str(pt["T"]),
+            str(pt["deg_S"]),
+        ]
+        for pt in points
+    ]
+    finite = sum(1 for pt in points if pt["e_star"] is not None)
+    return {
+        "kind": "saturation",
+        "title": f"saturation index e* across a/{d}",
+        "blocks": [
+            {
+                "kind": "kv",
+                "pairs": [
+                    ("denominator d", str(d)),
+                    ("numerators a coprime to d", str(len(points))),
+                    ("with a finite saturation index e*", str(finite)),
+                ],
+            },
+            {
+                "kind": "table",
+                "columns": ["a/d", "a mod d", "regime", "e* (minimal n)", "T", "deg S"],
+                "rows": rows,
+            },
+            {
+                "kind": "note",
+                "text": (
+                    "S | [n]_q iff e* = lcm(T) divides n, so the minimal saturating n "
+                    "is e* and every multiple of it also works. The impossibility "
+                    "residues (non-squarefree or non-cyclotomic S) divide no [n]_q, so "
+                    "the equal-tail difference is never finite there."
+                ),
+            },
+        ],
+        "data": ex,
+    }
+
+
+def compute_degcollapse(d_max: int, a_max: int | None = None) -> Result:
+    """deg S against the bound d-1 over the coprime grid, with the collapse depth.
+
+    The diagonal deg S = d-1 is the saturating a == +/-1 locus (S = [d]_q); the
+    drop below it is the collapse depth d-1-deg S, which for a squarefree S is
+    the totient weight of the dropped Phi_k (the degree note's law). The depth_ok
+    column cross-checks that equality on each squarefree cell.
+    """
+    from .factor import REGIME_LABELS, degree_collapse
+
+    dc = degree_collapse(d_max, a_max)
+    cells = dc["cells"]
+    rows = [
+        [
+            f"{c['a']}/{c['d']}",
+            f"{c['deg_S']}/{c['deg_bound']}",
+            str(c["drop"]),
+            str(c["totient_sum"]),
+            _t_set_str(c["dropped"]) if c["dropped"] else "-",
+            REGIME_LABELS[c["regime"]],
+        ]
+        for c in cells[:_ATLAS_MAX_ROWS]
+    ]
+    truncated = len(cells) > _ATLAS_MAX_ROWS
+    saturating = sum(1 for c in cells if c["saturates_bound"])
+    bound_str = f"d <= {d_max}" + (f", a <= {a_max}" if a_max else "")
+    blocks: list[dict[str, Any]] = [
+        {
+            "kind": "kv",
+            "pairs": [
+                ("grid", f"{bound_str}, proper coprime fractions 0 < a/d < 1"),
+                ("fractions", str(len(cells))),
+                ("on the diagonal deg S = d-1 (S = [d]_q)", str(saturating)),
+                (
+                    "collapse-depth law drop = sum phi(dropped) on squarefree S",
+                    "holds" if dc["depth_law_holds"] else "FAILS",
+                ),
+            ],
+        },
+        {
+            "kind": "table",
+            "columns": ["a/d", "deg S/(d-1)", "drop", "sum phi(dropped)", "dropped", "regime"],
+            "rows": rows,
+        },
+    ]
+    if truncated:
+        blocks.append(
+            {
+                "kind": "note",
+                "text": (
+                    f"per-fraction table truncated to the first {_ATLAS_MAX_ROWS} of "
+                    f"{len(cells)} fractions. Use --json for the full grid, or the web "
+                    "collapse map for the scatter against the diagonal."
+                ),
+            }
+        )
+    blocks.append(
+        {
+            "kind": "note",
+            "text": (
+                "deg S <= d-1 always, with equality iff S = [d]_q iff a == +/-1 "
+                "(mod d). Below the diagonal the drop d-1-deg S equals the totient "
+                "weight of the dropped cyclotomic factors for a squarefree S (the "
+                "5/12 drop of Phi_6 Phi_12 is 2+4 = 6, the 4/15 drop of Phi_15 is 8)."
+            ),
+        }
+    )
+    return {
+        "kind": "degcollapse",
+        "title": f"deg S vs d-1 collapse map  ({bound_str})",
+        "blocks": blocks,
+        "data": dc,
+    }
+
+
 def compute_qint(n: int) -> Result:
     """The q-integers [n]_q and [n]_{q^-1}."""
     a = sp.sympify(q_int(n))
@@ -1239,6 +1570,43 @@ def _prompt_factor(qst: Any) -> dict[str, Any] | None:
     return {"a": a, "b": b}
 
 
+def _prompt_sprops(qst: Any) -> dict[str, Any] | None:
+    answer = qst.text(
+        "rational a/d  (for example 5/12)",
+        default="5/12",
+        validate=_validate_rational,
+    ).ask()
+    if answer is None:
+        return None
+    a, b = _parse_rational(answer.strip())
+    return {"a": a, "b": b}
+
+
+def _prompt_satlas(qst: Any) -> dict[str, Any] | None:
+    d_max = _ask_int(qst, "max denominator d", "12", low=2)
+    if d_max is None:
+        return None
+    a_max = _ask_int(qst, "max numerator a (0 for no cap)", "0", low=0)
+    if a_max is None:
+        return None
+    return {"d_max": d_max, "a_max": a_max or None}
+
+
+def _prompt_saturation(qst: Any) -> dict[str, Any] | None:
+    d = _ask_int(qst, "denominator d", "12", low=2)
+    return None if d is None else {"d": d}
+
+
+def _prompt_degcollapse(qst: Any) -> dict[str, Any] | None:
+    d_max = _ask_int(qst, "max denominator d", "12", low=2)
+    if d_max is None:
+        return None
+    a_max = _ask_int(qst, "max numerator a (0 for no cap)", "0", low=0)
+    if a_max is None:
+        return None
+    return {"d_max": d_max, "a_max": a_max or None}
+
+
 def _prompt_qint(qst: Any) -> dict[str, Any] | None:
     n = _ask_int(qst, "integer n", "5")
     return None if n is None else {"n": n}
@@ -1428,6 +1796,38 @@ CAPABILITIES: list[Capability] = [
         "factor the numerator and denominator over Z[q], labelling Phi_d factors",
         _prompt_factor,
         compute_factor,
+    ),
+    Capability(
+        "sprops",
+        "Denominator S(q) properties of [a/d]_q",
+        "cyclotomic factors of S, saturation index e*, deg S vs d-1, S(1)=d, "
+        "collapse vs full [d]_q",
+        _prompt_sprops,
+        compute_sprops,
+    ),
+    Capability(
+        "satlas",
+        "S(q) cyclotomic-factor atlas (a/d grid)",
+        "regime of S(q) (full [d]_q / collapse / non-squarefree / non-cyclotomic) "
+        "over a coprime (a, d) grid, with the Phi_k appearance tally",
+        _prompt_satlas,
+        compute_satlas,
+    ),
+    Capability(
+        "saturation",
+        "Saturation index e* across a/d (fixed d)",
+        "e* = lcm(T) and the minimal saturating n as a ranges over the residues "
+        "coprime to a fixed d, flagging the impossibility residues",
+        _prompt_saturation,
+        compute_saturation,
+    ),
+    Capability(
+        "degcollapse",
+        "deg S vs d-1 collapse map",
+        "deg S against the bound d-1 over the grid, with the collapse depth "
+        "d-1-deg S = totient weight of the dropped Phi_k",
+        _prompt_degcollapse,
+        compute_degcollapse,
     ),
     Capability(
         "qint",
@@ -2190,6 +2590,48 @@ def _build_parser() -> argparse.ArgumentParser:
     p_factor.add_argument("fraction", help="the rational a/b, e.g. 7/5")
     add_json(p_factor)
 
+    p_sprops = sub.add_parser(
+        "sprops",
+        help="properties of the denominator S(q): cyclotomic factors, "
+        "saturation index e*, deg S vs d-1, S(1)=d, collapse vs full [d]_q",
+    )
+    p_sprops.add_argument("fraction", help="the rational a/d, e.g. 5/12")
+    add_json(p_sprops)
+
+    p_satlas = sub.add_parser(
+        "satlas",
+        help="S(q) cyclotomic-factor atlas over a coprime (a, d) grid, "
+        "classified by regime with a Phi_k appearance tally",
+    )
+    p_satlas.add_argument(
+        "d_max", type=int, help="max denominator d in the grid, e.g. 12"
+    )
+    p_satlas.add_argument(
+        "--a-max", type=int, default=None, help="cap the numerator a (default a < d)"
+    )
+    add_json(p_satlas)
+
+    p_saturation = sub.add_parser(
+        "saturation",
+        help="saturation index e* = lcm(T) and the minimal saturating n as a "
+        "ranges over the residues coprime to a fixed d",
+    )
+    p_saturation.add_argument("d", type=int, help="the denominator d, e.g. 12")
+    add_json(p_saturation)
+
+    p_degcollapse = sub.add_parser(
+        "degcollapse",
+        help="deg S vs the bound d-1 over the grid, with the collapse depth "
+        "(d-1-deg S = totient weight of the dropped Phi_k)",
+    )
+    p_degcollapse.add_argument(
+        "d_max", type=int, help="max denominator d in the grid, e.g. 12"
+    )
+    p_degcollapse.add_argument(
+        "--a-max", type=int, default=None, help="cap the numerator a (default a < d)"
+    )
+    add_json(p_degcollapse)
+
     p_exact = sub.add_parser(
         "exact",
         help="exact [x]_q = P/Q, or the exact difference [x]_q - [y]_q over Q(q)",
@@ -2405,6 +2847,15 @@ def _run_headless(args: argparse.Namespace) -> int:
         elif args.command == "factor":
             a, b = _parse_rational(args.fraction)
             result = compute_factor(a, b)
+        elif args.command == "sprops":
+            a, b = _parse_rational(args.fraction)
+            result = compute_sprops(a, b)
+        elif args.command == "satlas":
+            result = compute_satlas(args.d_max, args.a_max)
+        elif args.command == "saturation":
+            result = compute_saturation(args.d)
+        elif args.command == "degcollapse":
+            result = compute_degcollapse(args.d_max, args.a_max)
         elif args.command == "exact":
             result = compute_exact_rational(args.x, args.y)
         elif args.command == "qint":

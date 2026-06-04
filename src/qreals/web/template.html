@@ -91,7 +91,7 @@ window.MathJax = {
 <footer>
   <div class="wrap">
     <span>qreals serve &middot; a local web app over the qreals engine</span>
-    <span><a href="https://github.com/patrickt6/qreals">github.com/patrickt6/qreals</a></span>
+    <span class="footer-right"><span id="whatsNewSlot"></span><a href="https://github.com/patrickt6/qreals">github.com/patrickt6/qreals</a></span>
   </div>
 </footer>
 
@@ -180,6 +180,12 @@ window.MathJax = {
   <button class="share-item" data-share="bibtex" type="button">Cite (BibTeX)</button>
   <button class="share-item" data-share="html" type="button">Published HTML</button>
 </div>
+
+<div class="modal-backdrop hidden" id="whatsNewBackdrop"><div class="modal" role="dialog" aria-modal="true">
+  <h2 id="whatsNewTitle">What's new</h2>
+  <div id="whatsNewBody" class="whatsnew-body"></div>
+  <div class="startup-actions"><button class="go" id="whatsNewClose" type="button">Close</button></div>
+</div></div>
 
 <div id="printRoot" class="print-root"></div>
 

@@ -361,6 +361,96 @@ async function maybeReceiveShare(){
   receiveSharePayload(m[1], true);
 }
 
+// ---- update check (PyPI) ------------------------------------------------
+// Ask the server (which asks PyPI once per process) whether a newer qreals is
+// out, and show a slim dismissible banner above the nav if so. Fully optional:
+// the fetch is best-effort and the banner only appears when PyPI is strictly
+// newer and the user has not dismissed that exact version. The server returns
+// nothing useful when offline or when the package is not yet published, so this
+// is silent until there is a real update to announce.
+// Render a changelog entry's notes as a LaTeX-typeset list. Each note is a
+// {change, helps} pair from the server, both trusted (shipped with the package),
+// so the inline \( ... \) math is injected as HTML and typeset by the caller.
+function _notesHtml(entry){
+  if (!entry || !entry.notes || !entry.notes.length) return "";
+  const items = entry.notes.map((n) =>
+    '<li><span class="note-change">' + (n.change || "") + '</span>' +
+    (n.helps ? ' <span class="note-helps">' + n.helps + '</span>' : '') +
+    '</li>').join("");
+  return (entry.summary ? '<p class="notes-summary">' + esc(entry.summary) + '</p>' : '') +
+    '<ul class="notes-list">' + items + '</ul>';
+}
+
+let _versionData = null;   // cached /version payload for the footer "What's new"
+
+async function checkForUpdate(){
+  let data;
+  try { data = await fetch("/version").then((r) => r.json()); }
+  catch(e){ return; }
+  _versionData = data || null;
+  wireWhatsNew();
+  if (!data || !data.update_available || !data.latest) return;
+  const key = "qreals.updateDismissed";
+  if (localStorage.getItem(key) === data.latest) return;  // dismissed this one
+  // prefer the new version's notes if the shipped changelog knows them, else
+  // show the running version's recent changes so the banner is never empty.
+  const entry = data.latest_notes || data.current_notes;
+  const notesId = "updateNotes";
+  const notes = entry ? _notesHtml(entry) : "";
+  const bar = document.createElement("div");
+  bar.className = "update-bar";
+  bar.innerHTML = '<div class="update-line">' +
+    '<span>A newer qreals is available: <b>' + esc(data.latest) +
+    '</b> (you have ' + esc(data.current) + '). Update with ' +
+    '<code>pip install -U qreals</code>.</span>' +
+    '<span class="update-actions">' +
+      (notes ? '<button class="update-notes-btn linkbtn" type="button">What\'s new</button>' : '') +
+      '<a href="https://pypi.org/project/qreals/" target="_blank" rel="noopener">View on PyPI</a>' +
+      '<button class="update-x" type="button" aria-label="Dismiss">&times;</button>' +
+    '</span></div>' +
+    (notes ? '<div class="update-notes hidden" id="' + notesId + '">' + notes + '</div>' : '');
+  document.body.insertBefore(bar, document.body.firstChild);
+  bar.querySelector(".update-x").addEventListener("click", () => {
+    localStorage.setItem(key, data.latest);
+    bar.remove();
+  });
+  const nb = bar.querySelector(".update-notes-btn");
+  if (nb) nb.addEventListener("click", () => {
+    const box = bar.querySelector("#" + notesId);
+    const show = box.classList.contains("hidden");
+    box.classList.toggle("hidden", !show);
+    if (show && !box._typeset){ box._typeset = true; typeset(box); }
+  });
+}
+
+// A "What's new in qreals X" footer link, always available so the patch notes
+// for the running version are reachable even when there is no update.
+function wireWhatsNew(){
+  const slot = $("whatsNewSlot");
+  if (!slot || !_versionData || !_versionData.current_notes) return;
+  slot.innerHTML = '<button class="linkbtn whatsnew-link" type="button">' +
+    "What's new in qreals " + esc(_versionData.current) + '</button>';
+  slot.querySelector(".whatsnew-link").addEventListener("click", showWhatsNew);
+}
+
+function showWhatsNew(){
+  const d = _versionData;
+  if (!d || !d.current_notes) return;
+  const back = $("whatsNewBackdrop");
+  $("whatsNewTitle").textContent = "What's new in qreals " + d.current;
+  const body = $("whatsNewBody");
+  body.innerHTML = _notesHtml(d.current_notes);
+  back.classList.remove("hidden");
+  requestAnimationFrame(() => back.classList.add("show"));
+  typeset(body);
+  const close = () => {
+    back.classList.remove("show");
+    setTimeout(() => back.classList.add("hidden"), 280);
+  };
+  $("whatsNewClose").onclick = close;
+  back.onclick = (e) => { if (e.target === back) close(); };
+}
+
 function toggleShareMenu(btn){
   const m = $("shareMenu");
   if (m.classList.contains("hidden")){
@@ -455,6 +545,12 @@ function buildForm(opKey, preset){
   let html = '<h2>' + esc(meta.name) + '</h2>' +
     '<span class="psym" id="psym"></span>' +
     '<p class="pblurb">' + esc(meta.blurb) + '</p>';
+  // The longer "What is this?" description carries inline LaTeX from the
+  // registry (trusted, not user input), so it is injected as HTML and typeset.
+  if (meta.about){
+    html += '<details class="op-about"><summary>What is this?</summary>' +
+      '<div class="op-about-body">' + meta.about + '</div></details>';
+  }
   for (const f of meta.fields){
     const kind = controlKind(opKey, f);
     const preVal = (preset && preset[f.name] !== undefined) ? String(preset[f.name]) : null;
@@ -496,6 +592,12 @@ function buildForm(opKey, preset){
   const psym = $("psym");
   if (meta.tex){ psym.innerHTML = '\\(' + meta.tex + '\\)'; typeset(psym); }
   else { psym.textContent = meta.symbol; }
+  // typeset the "What is this?" description once it is opened (lazy, so the math
+  // is laid out only when the reader expands it).
+  const aboutEl = $("formPanel").querySelector(".op-about");
+  if (aboutEl) aboutEl.addEventListener("toggle", () => {
+    if (aboutEl.open && !aboutEl._typeset){ aboutEl._typeset = true; typeset(aboutEl); }
+  });
 
   // wire each control and register a value getter
   for (const f of meta.fields){
@@ -687,12 +789,45 @@ function renderResultInto(root, r, opts){
       '</p></div>';
   }
   html += '<div class="rmath">\\[' + r.latex + '\\]</div>';
+  // Some results (the S(q) properties panel) ship a glossary keyed by row label;
+  // those rows become click-to-explain, opening a box with a LaTeX description
+  // and the values the property can take. The glossary text is trusted (from the
+  // engine, not user input), so it is injected as HTML and typeset.
+  const rowInfo = (r.meta && r.meta.rowInfo) || null;
+  // rowTex: a row whose value is engine-generated LaTeX (trusted), rendered as
+  // typeset math instead of plain text, e.g. the cyclotomic-factor tally.
+  const rowTex = (r.meta && r.meta.rowTex) || null;
   if (r.rows && r.rows.length){
     html += '<dl class="rows">';
-    for (const [k, v] of r.rows){
-      html += '<dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd>';
-    }
+    r.rows.forEach(([k, v], i) => {
+      const dd = (rowTex && rowTex[k])
+        ? '<dd class="dd-tex">\\(' + rowTex[k] + '\\)</dd>'
+        : '<dd>' + esc(v) + '</dd>';
+      if (rowInfo && rowInfo[k]){
+        html += '<dt class="has-info" data-ri="' + i + '" role="button" ' +
+          'tabindex="0" title="Click for an explanation">' + esc(k) +
+          ' <span class="ri-dot">i</span></dt>' + dd;
+      } else {
+        html += '<dt>' + esc(k) + '</dt>' + dd;
+      }
+    });
     html += '</dl>';
+    if (rowInfo){
+      html += '<div class="ri-stack">';
+      r.rows.forEach(([k, v], i) => {
+        const info = rowInfo[k];
+        if (!info) return;
+        html += '<div class="ri-panel hidden" data-rip="' + i + '">' +
+          '<h4>' + esc(info.title || k) + '</h4>' +
+          '<div class="ri-body">' + (info.tex || "") + '</div>';
+        if (info.values && info.values.length){
+          html += '<p class="ri-vh">What its values mean</p><ul class="ri-values">' +
+            info.values.map((x) => '<li>' + x + '</li>').join("") + '</ul>';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+    }
   }
   html += '<div class="rtext-wrap"><div class="rtext-head">' +
     '<p class="rlabel">Plain text</p>' +
@@ -722,6 +857,30 @@ function renderResultInto(root, r, opts){
   if (hasEigen) drawEigen(r.meta.eigen, root);
   const mathEl = root.querySelector(".rmath");
   if (mathEl) typeset(mathEl);
+  // typeset any row values that carry LaTeX (meta.rowTex)
+  if (rowTex){ const dl = root.querySelector("dl.rows"); if (dl) typeset(dl); }
+  // click-to-explain property rows: toggle the matching info panel, close the
+  // others, and typeset the LaTeX the first time a panel is opened.
+  root.querySelectorAll(".has-info").forEach((dt) => {
+    const i = dt.dataset.ri;
+    const panel = root.querySelector('.ri-panel[data-rip="' + i + '"]');
+    if (!panel) return;
+    const toggle = () => {
+      const willShow = panel.classList.contains("hidden");
+      root.querySelectorAll(".ri-panel").forEach((p) => p.classList.add("hidden"));
+      root.querySelectorAll(".has-info").forEach((d) => d.classList.remove("open"));
+      if (willShow){
+        panel.classList.remove("hidden");
+        dt.classList.add("open");
+        if (!panel._typeset){ panel._typeset = true; typeset(panel); }
+        panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    };
+    dt.addEventListener("click", toggle);
+    dt.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " "){ e.preventDefault(); toggle(); }
+    });
+  });
   const copyBtn = root.querySelector(".copy-btn");
   if (copyBtn) copyBtn.addEventListener("click", () => {
     navigator.clipboard.writeText(r.text).then(() => toast("Plain text copied"));
@@ -889,7 +1048,8 @@ function _poleTrace2d(poles){
     name: "poles (zeros of S)", type: "scatter", mode: "markers",
     hoverinfo: "text",
     text: poles.map((p) => "pole: q = " + _fmtComplex(p.re, p.im) +
-      "<br>|q| = " + p.mod.toFixed(4)),
+      "<br>|q| = " + p.mod.toFixed(4) +
+      "<br>factor: " + (p.d != null ? ("Phi_" + p.d + " (on |q| = 1)") : "core (off circle)")),
     marker: { color: ROOT_POLE, size: 12, symbol: "x", line: { width: 2 } },
   };
 }
@@ -1219,7 +1379,8 @@ function drawRoots3dRS(fig, meta){
     hoverinfo: "text",
     x: poles.map((p) => p.re), y: poles.map((p) => p.im), z: poles.map(() => CEIL),
     text: poles.map((p) => "pole: q = " + _fmtComplex(p.re, p.im) +
-      "<br>|q| = " + p.mod.toFixed(4)),
+      "<br>|q| = " + p.mod.toFixed(4) +
+      "<br>factor: " + (p.d != null ? ("Phi_" + p.d) : "core")),
     marker: { color: ROOT_POLE, size: 5, symbol: "diamond",
       line: { color: "#fff", width: 1 } },
   };
@@ -1846,12 +2007,182 @@ function drawRootLocusAnimated(fig, p, cap){
     "denominator's roots, earlier ones ghosted as a trail. Press Play, or drag " +
     "the slider to scrub through the sweep.";
 }
+// ---- S(q) denominator atlas and explorers (Plotly) ------------------
+// The regime of each S(q) is the exact classification from factor.s_properties;
+// the colours below are a fixed legend, never a numeric proximity guess. The
+// two saturating regimes (full [d]_q, proper collapse) are the squarefree-
+// cyclotomic S with a finite saturation index e*; the two impossibility regimes
+// (non-squarefree, non-cyclotomic) divide no [n]_q.
+const SREGIME = {
+  full:          { color: "#1f8a4c", label: "full [d]_q" },
+  collapse:      { color: "#2456a6", label: "proper collapse" },
+  nonsquarefree: { color: "#c98a00", label: "non-squarefree (no n)" },
+  noncyclotomic: { color: "#b3261e", label: "non-cyclotomic (no n)" },
+};
+const SREGIME_ORDER = ["full", "collapse", "nonsquarefree", "noncyclotomic"];
+// Plotly text labels are not MathJax, so cyclotomic factors are written with
+// Unicode subscripts (Phi_2 -> the glyph with a small 2) for a clean look.
+const _SUBS = "₀₁₂₃₄₅₆₇₈₉";
+function _sub(n){ return String(n).replace(/\d/g, (d) => _SUBS[+d]); }
+function _phi(k){ return "Φ" + _sub(k); }   // Phi with a subscript index
+function _cellTitle(c){
+  const t = (c.T && c.T.length) ? "{" + c.T.join(", ") + "}" : "empty";
+  const e = (c.saturation_index != null)
+    ? ("e* = " + c.saturation_index) : "e* undefined";
+  return c.a + "/" + c.d + "<br>" + SREGIME[c.regime].label +
+    "<br>T = " + t + "<br>deg S = " + c.deg_S + " / " + c.deg_bound + "<br>" + e;
+}
+// (atlas A) the (a, d) grid coloured by regime: the a == +/-1 saturating locus
+// shows up as the two "full [d]_q" diagonals, the impossibility cells stand out.
+function drawSAtlasGrid(fig, p, cap){
+  if (!fig) return;
+  if (typeof Plotly === "undefined"){ fig.innerHTML = VIZ_NOPLOT; return; }
+  const cells = p.cells || [];
+  const traces = SREGIME_ORDER.map((reg) => {
+    const pts = cells.filter((c) => c.regime === reg);
+    return {
+      x: pts.map((c) => c.a), y: pts.map((c) => c.d),
+      name: SREGIME[reg].label, type: "scatter", mode: "markers",
+      hoverinfo: "text", text: pts.map(_cellTitle),
+      marker: { color: SREGIME[reg].color, size: 10, symbol: "square",
+        line: { color: "#ffffff", width: 0.6 } },
+    };
+  }).filter((t) => t.x.length);
+  const layout = {
+    height: 460, margin: { l: 48, r: 18, t: 14, b: 46 },
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "Inter,system-ui,sans-serif", size: 12, color: "#475059" },
+    hoverlabel: { font: { family: "JetBrains Mono,monospace", size: 12 } },
+    showlegend: true,
+    legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.16, yanchor: "top" },
+    xaxis: { title: { text: "numerator a" }, dtick: 1, gridcolor: "#eef1f5" },
+    yaxis: { title: { text: "denominator d" }, dtick: 1, gridcolor: "#eef1f5" },
+  };
+  Plotly.newPlot(fig, traces, layout, VIZ_CONFIG);
+  if (cap) cap.textContent = "Each proper fraction a/d coloured by the regime of " +
+    "its denominator S(q). The full [d]_q cells trace the a == +/-1 (mod d) " +
+    "diagonals; the non-squarefree and non-cyclotomic cells (which divide no " +
+    "[n]_q) stand out. Hover a cell for its index set T, degree, and e*.";
+}
+// (atlas B) the Phi_k appearance tally: how often each cyclotomic factor occurs
+// across the grid, Remark 2 (S is a subset product of the Phi_k of [n]_q) made
+// visible as d grows.
+function drawSAtlasTally(fig, p, cap){
+  if (!fig) return;
+  if (typeof Plotly === "undefined"){ fig.innerHTML = VIZ_NOPLOT; return; }
+  const ap = p.index_appearances || {};
+  const ks = Object.keys(ap).map(Number).sort((u, v) => u - v);
+  const bar = {
+    type: "bar", x: ks.map((k) => _phi(k)), y: ks.map((k) => ap[k]),
+    marker: { color: "#2456a6" }, hoverinfo: "text",
+    text: ks.map((k) => _phi(k) + ": " + ap[k] + " appearances"),
+  };
+  Plotly.newPlot(fig, [bar], {
+    height: 440, margin: { l: 48, r: 18, t: 14, b: 56 },
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "Inter,system-ui,sans-serif", size: 12, color: "#475059" },
+    hoverlabel: { font: { family: "JetBrains Mono,monospace", size: 12 } },
+    xaxis: { title: { text: "cyclotomic factor" }, gridcolor: "#eef1f5" },
+    yaxis: { title: { text: "appearances across the grid" }, gridcolor: "#eef1f5" },
+  }, VIZ_CONFIG);
+  if (cap) cap.textContent = "How often each cyclotomic factor Phi_k appears as a " +
+    "factor of some S(a/d) across the grid (Remark 2: S is a subset product of " +
+    "the cyclotomic factors of [d]_q).";
+}
+// the saturation-index explorer: e* = lcm(T) per numerator a for a fixed d, with
+// the impossibility residues (no finite n) marked on the floor.
+function drawSaturation(fig, p, cap){
+  if (!fig) return;
+  if (typeof Plotly === "undefined"){ fig.innerHTML = VIZ_NOPLOT; return; }
+  const pts = p.points || [];
+  const fin = pts.filter((t) => t.e_star != null);
+  const imp = pts.filter((t) => t.e_star == null);
+  const _txt = (t) => t.a + "/" + t.d + "<br>" + SREGIME[t.regime].label +
+    "<br>T = {" + (t.T || []).join(", ") + "}" +
+    (t.e_star != null ? ("<br>e* = minimal n = " + t.e_star) : "<br>no finite n");
+  const traces = [];
+  if (fin.length) traces.push({
+    type: "bar", name: "finite e* (minimal saturating n)",
+    x: fin.map((t) => t.a), y: fin.map((t) => t.e_star),
+    hoverinfo: "text", text: fin.map(_txt),
+    marker: { color: fin.map((t) => SREGIME[t.regime].color) },
+  });
+  if (imp.length) traces.push({
+    type: "scatter", mode: "markers", name: "no finite n (impossibility)",
+    x: imp.map((t) => t.a), y: imp.map(() => 0),
+    hoverinfo: "text", text: imp.map(_txt),
+    marker: { color: imp.map((t) => SREGIME[t.regime].color), size: 12,
+      symbol: "x", line: { width: 2 } },
+  });
+  Plotly.newPlot(fig, traces, {
+    height: 440, margin: { l: 54, r: 18, t: 14, b: 56 },
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "Inter,system-ui,sans-serif", size: 12, color: "#475059" },
+    hoverlabel: { font: { family: "JetBrains Mono,monospace", size: 12 } },
+    showlegend: true,
+    legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.18, yanchor: "top" },
+    xaxis: { title: { text: "numerator a  (coprime to d = " + p.d + ")" },
+      dtick: 1, gridcolor: "#eef1f5" },
+    yaxis: { title: { text: "saturation index e* = lcm(T)" }, gridcolor: "#eef1f5",
+      rangemode: "tozero" },
+  }, VIZ_CONFIG);
+  if (cap) cap.textContent = "For the fixed denominator d = " + p.d + ", the " +
+    "saturation index e* (the minimal n with S | [n]_q) at each numerator a. " +
+    "Crosses on the floor are the impossibility residues, whose S divides no " +
+    "[n]_q, so the equal-tail difference is never finite.";
+}
+// the degree-vs-(d-1) collapse map: deg S against the bound d-1. The diagonal is
+// the a == +/-1 saturating locus (S = [d]_q); the vertical drop below it is the
+// collapse depth, the totient weight of the dropped Phi_k.
+function drawDegCollapse(fig, p, cap){
+  if (!fig) return;
+  if (typeof Plotly === "undefined"){ fig.innerHTML = VIZ_NOPLOT; return; }
+  const cells = p.cells || [];
+  const maxB = Math.max(1, ...cells.map((c) => c.deg_bound));
+  const _txt = (c) => c.a + "/" + c.d + "<br>" + SREGIME[c.regime].label +
+    "<br>deg S = " + c.deg_S + ", d-1 = " + c.deg_bound +
+    "<br>drop = " + c.drop +
+    (c.dropped && c.dropped.length
+      ? ("<br>dropped " + c.dropped.map(_phi).join(" ") +
+         ", sum φ = " + c.totient_sum) : "");
+  const traces = SREGIME_ORDER.map((reg) => {
+    const pts = cells.filter((c) => c.regime === reg);
+    return {
+      x: pts.map((c) => c.deg_bound), y: pts.map((c) => c.deg_S),
+      name: SREGIME[reg].label, type: "scatter", mode: "markers",
+      hoverinfo: "text", text: pts.map(_txt),
+      marker: { color: SREGIME[reg].color, size: 9,
+        line: { color: "#ffffff", width: 0.5 } },
+    };
+  }).filter((t) => t.x.length);
+  const layout = {
+    height: 460, margin: { l: 54, r: 18, t: 14, b: 46 },
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "Inter,system-ui,sans-serif", size: 12, color: "#475059" },
+    hoverlabel: { font: { family: "JetBrains Mono,monospace", size: 12 } },
+    showlegend: true,
+    legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.16, yanchor: "top" },
+    xaxis: { title: { text: "bound d - 1" }, gridcolor: "#eef1f5" },
+    yaxis: { title: { text: "deg S" }, gridcolor: "#eef1f5" },
+    shapes: [{ type: "line", x0: 0, y0: 0, x1: maxB, y1: maxB,
+      line: { color: "#1f8a4c", width: 1.5, dash: "dash" } }],
+  };
+  Plotly.newPlot(fig, traces, layout, VIZ_CONFIG);
+  if (cap) cap.textContent = "deg S against the bound d - 1. Points on the dashed " +
+    "diagonal saturate the bound (S = [d]_q, a == +/-1 mod d); the gap below the " +
+    "diagonal is the collapse depth, which for a squarefree S equals the totient " +
+    "weight of the dropped cyclotomic factors. Hover a point for its dropped set.";
+}
+
 function drawViz(fig, p, cap){
   if (!fig || !p) return;
   if (typeof Plotly === "undefined"){ fig.innerHTML = VIZ_NOPLOT; return; }
   if (p.kind === "coeff-surface") return drawCoeffSurface(fig, p, cap);
   if (p.kind === "root-sweep") return drawRootLocus2d(fig, p, cap);
   if (p.kind === "radius-grid") return drawRadiusLine(fig, p, cap);
+  if (p.kind === "s-atlas") return drawSAtlasGrid(fig, p, cap);
+  if (p.kind === "saturation") return drawSaturation(fig, p, cap);
+  if (p.kind === "degree-collapse") return drawDegCollapse(fig, p, cap);
 }
 // The per-visual view menu. Each entry is {id, label, fn}; the first is the
 // default. Function declarations above are hoisted, so naming them here is safe.
@@ -1872,6 +2203,16 @@ const VIZ_MODES = {
     { id: "grid", label: "(a, b) grid", fn: drawRadiusGridAB },
     { id: "tree", label: "Stern-Brocot", fn: drawSternBrocot },
     { id: "3d", label: "3D stems", fn: drawRadiusGrid },
+  ],
+  "s-atlas": [
+    { id: "grid", label: "(a, d) regime grid", fn: drawSAtlasGrid },
+    { id: "tally", label: "Phi_k tally", fn: drawSAtlasTally },
+  ],
+  "saturation": [
+    { id: "index", label: "e* per numerator", fn: drawSaturation },
+  ],
+  "degree-collapse": [
+    { id: "scatter", label: "deg S vs d-1", fn: drawDegCollapse },
   ],
 };
 function vizModeButtons(kind){
@@ -2398,7 +2739,7 @@ function _laurentLatex(coeffs){
   return s;
 }
 // With exactly two q-real coefficient rows, show [x]_q - [y]_q as a Laurent
-// polynomial (exact to the shared truncation order). This is Charles's P(q).
+// polynomial (exact to the shared truncation order), the difference P(q).
 // Rows running other tools simply do not contribute a coefficient list, so the
 // difference quietly appears only when it is meaningful.
 function cmpUpdateDiff(){
@@ -2781,3 +3122,4 @@ renderTray();
 applyAppearance(store.active());
 if (!store.active()) showStartup();    // first run / no active profile -> picker
 maybeReceiveShare();
+checkForUpdate();

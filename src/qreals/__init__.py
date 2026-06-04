@@ -87,9 +87,16 @@ from .coefficients import (
 from .deficit import Deficit, NegationPanel, deficit, negation_panel
 from .factor import (
     QRealFactor,
+    SProperties,
+    classify_poles,
+    degree_collapse,
     denominator_expr,
     factor_qreal,
     numerator_expr,
+    s_atlas,
+    s_properties,
+    s_regime,
+    saturation_explorer,
 )
 from .expansions import (
     coeffs_locked_by_convergent,
@@ -185,6 +192,13 @@ __all__ = [
     "canonical_multiset",
     "factor_qreal",
     "QRealFactor",
+    "s_properties",
+    "SProperties",
+    "s_regime",
+    "s_atlas",
+    "saturation_explorer",
+    "degree_collapse",
+    "classify_poles",
     "numerator_expr",
     "denominator_expr",
     "q",

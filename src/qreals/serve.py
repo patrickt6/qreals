@@ -28,6 +28,7 @@ from typing import Any
 
 import sympy as sp
 
+from . import __version__
 from . import app as _app
 from . import exports
 from . import features as _features
@@ -88,6 +89,18 @@ OPERATIONS: dict[str, dict[str, Any]] = {
         "cyclotomic factors.",
         "input_kind": _RATIONAL,
         "fields": [_f("input", "rational a/b", "7/5")],
+    },
+    "s-properties": {
+        "name": "Denominator S(q) properties",
+        "symbol": "S(q) of [a/d]_q",
+        "group": "q-rationals",
+        "blurb": "The cyclotomic structure of the denominator S(q): its factors "
+        "Phi_k, the index set T and saturation index e* = lcm(T) (the minimal n "
+        "with S | [n]_q), deg S against the bound d-1, the S(1)=d and S(0)=1 "
+        "invariants, and whether S is the full [d]_q, a proper collapse, or the "
+        "impossibility branch (divides no [n]_q).",
+        "input_kind": _RATIONAL,
+        "fields": [_f("input", "rational a/d", "5/12")],
     },
     "roots": {
         "name": "Roots of R(q)",
@@ -167,6 +180,42 @@ OPERATIONS: dict[str, dict[str, Any]] = {
         "fields": [
             _f("input", "max denominator b", "8", "int"),
             _f("a_max", "max numerator a", "12", "int"),
+        ],
+    },
+    "s-atlas": {
+        "name": "S(q) cyclotomic atlas",
+        "symbol": "regime of S(a/d)",
+        "group": "Visuals",
+        "blurb": "A coloured (a, d) grid of the denominator S(q)'s regime: full "
+        "[d]_q, a proper cyclotomic collapse, non-squarefree, or non-cyclotomic, "
+        "with the index set T on hover and a Phi_k appearance tally.",
+        "input_kind": _INTEGER,
+        "fields": [
+            _f("input", "max denominator d", "12", "int"),
+            _f("a_max", "max numerator a (0 = no cap)", "0", "int"),
+        ],
+    },
+    "saturation-explorer": {
+        "name": "Saturation index e*",
+        "symbol": "e*(a/d) vs a",
+        "group": "Visuals",
+        "blurb": "For a fixed d, the saturation index e* = lcm(T) and the minimal "
+        "saturating n as a ranges over the residues coprime to d, with the "
+        "impossibility residues (no finite n) marked.",
+        "input_kind": _INTEGER,
+        "fields": [_f("input", "denominator d", "12", "int")],
+    },
+    "degree-collapse": {
+        "name": "deg S vs d-1 collapse map",
+        "symbol": "deg S vs d-1",
+        "group": "Visuals",
+        "blurb": "deg S plotted against the bound d-1 over the coprime grid. The "
+        "diagonal is the a == +/-1 saturating locus (S = [d]_q); the drop below "
+        "it is the collapse depth, the totient weight of the dropped Phi_k.",
+        "input_kind": _INTEGER,
+        "fields": [
+            _f("input", "max denominator d", "12", "int"),
+            _f("a_max", "max numerator a (0 = no cap)", "0", "int"),
         ],
     },
     # ---- q-reals ---------------------------------------------------------
@@ -413,6 +462,10 @@ _TEX_SYMBOL = {
     "coeff-surface": r"c_n\!\left([x]_q\right)",
     "root-sweep": r"\{\,q:R(q)=0\,\}\ \text{vs}\ b",
     "radius-grid": r"\rho\!\left(\left[\tfrac{a}{b}\right]_q\right)",
+    "s-properties": r"S(q)\ \text{of}\ \left[\tfrac{a}{d}\right]_q",
+    "s-atlas": r"S\!\left(\tfrac{a}{d}\right)\ \text{regime}",
+    "saturation-explorer": r"e^{\star}\!\left(\tfrac{a}{d}\right)",
+    "degree-collapse": r"\deg S\ \text{vs}\ d-1",
     "coefficients": r"[x]_q",
     "laurent": r"[x]_q+O(q^{k})",
     "prefix": r"\big[\lfloor x\rfloor\big]_q",
@@ -432,15 +485,390 @@ _TEX_SYMBOL = {
 }
 
 
+# A longer "What is this?" description for each operation, shown under the blurb
+# on the per-operation page. These carry inline LaTeX (\( ... \)) typeset by
+# MathJax, so a newcomer can read what the tool computes and why it matters, not
+# just its one-line card summary.
+_ABOUT: dict[str, str] = {
+    "rational": (
+        r"The \(q\)-rational \(\left[\tfrac{p}{s}\right]_q\) is the "
+        r"Morier-Genoud and Ovsienko \(q\)-deformation of the fraction "
+        r"\(\tfrac{p}{s}\): a rational function \(N(q)/S(q)\) in the formal "
+        r"variable \(q\) that returns the ordinary value \(\tfrac{p}{s}\) when "
+        r"\(q=1\). It is built from the (negative) continued fraction of "
+        r"\(\tfrac{p}{s}\) by replacing each integer \(c\) with the "
+        r"\(q\)-integer \([c]_q\)."
+    ),
+    "qint": (
+        r"The \(q\)-integer is "
+        r"\([n]_q = 1+q+q^2+\cdots+q^{\,n-1} = \dfrac{1-q^{\,n}}{1-q}\), the "
+        r"q-analog of a whole number \(n\). At \(q=1\) it collapses to \(n\). It "
+        r"factors over \(\mathbb{Z}[q]\) as the product of the cyclotomic "
+        r"polynomials \(\Phi_k(q)\) over the divisors \(k\mid n\) with \(k\ge2\)."
+    ),
+    "factor": (
+        r"Writes \(\left[\tfrac{a}{b}\right]_q = q^{k}\,R(q)/S(q)\) with "
+        r"\(R(0)=1\) and factors both the numerator \(R(q)\) and denominator "
+        r"\(S(q)\) into irreducibles over \(\mathbb{Z}[q]\), labelling each "
+        r"factor as a cyclotomic polynomial \(\Phi_d(q)\) (a root of unity) or a "
+        r"non-cyclotomic ``core'' factor. \(R\) is often irreducible when "
+        r"\(a\) is prime."
+    ),
+    "s-properties": (
+        r"Analyzes the denominator \(S(q)\) of "
+        r"\(\left[\tfrac{a}{d}\right]_q\). \(S\) is a monic polynomial with "
+        r"\(S(0)=1\) and \(S(1)=d\); when it is a squarefree product of "
+        r"cyclotomics \(S=\prod_{k\in T}\Phi_k\) it divides \([n]_q\) exactly "
+        r"when the saturation index \(e^\star=\operatorname{lcm}(T)\) divides "
+        r"\(n\). Its degree obeys \(\deg S\le d-1\), with equality iff "
+        r"\(S=[d]_q\) iff \(a\equiv\pm1\pmod d\). Click any property below for a "
+        r"full explanation."
+    ),
+    "roots": (
+        r"Plots the complex roots of the numerator \(R(q)\) (the zeros of "
+        r"\(\left[\tfrac{a}{b}\right]_q\)) and overlays the roots of the "
+        r"denominator \(S(q)\) (its poles). Cyclotomic factors give roots on the "
+        r"unit circle \(|q|=1\); a non-cyclotomic factor can sit off it. The "
+        r"pole nearest the origin sets the radius of convergence \(\rho\) of the "
+        r"power series \(\left[\tfrac{a}{b}\right]_q\)."
+    ),
+    "jump-gap": (
+        r"A rational \(p/s\) has two \(q\)-versions: a right value "
+        r"\(\left[\tfrac{p}{s}\right]_q^{+}\) (the limit from above) and a left "
+        r"value \(\left[\tfrac{p}{s}\right]_q^{-}\) (from below). Their gap is "
+        r"the single rational function "
+        r"\(\left[\tfrac{p}{s}\right]_q^{+}-\left[\tfrac{p}{s}\right]_q^{-} "
+        r"= (1-q)\,q^{E}/(S^{+}S^{-})\) (Jouteur, arXiv:2503.02122)."
+    ),
+    "exact-rational": (
+        r"The exact \(\left[x\right]_q = P(q)/Q(q)\) for a \(q\)-rational "
+        r"\(x\), factored. Give a second rational \(y\) for the exact difference "
+        r"\(\left[x\right]_q-\left[y\right]_q = "
+        r"\dfrac{P_xQ_y-P_yQ_x}{Q_xQ_y}\), with the divisibilities "
+        r"\(Q_x\mid Q_y\) that force the denominators to agree up to a unit."
+    ),
+    "s-atlas": (
+        r"A coloured \((a,d)\) grid of the regime of the denominator "
+        r"\(S(a/d)\): the full \([d]_q\), a proper cyclotomic collapse, "
+        r"non-squarefree, or non-cyclotomic. The full \([d]_q\) cells trace the "
+        r"\(a\equiv\pm1\pmod d\) diagonals; the two impossibility regimes "
+        r"(which divide no \([n]_q\)) stand out. A companion view tallies how "
+        r"often each \(\Phi_k\) appears as \(d\) grows."
+    ),
+    "saturation-explorer": (
+        r"For a fixed denominator \(d\), the saturation index "
+        r"\(e^\star(a/d)=\operatorname{lcm}(T)\) and the minimal \(n\) with "
+        r"\(S\mid[n]_q\), as \(a\) ranges over the residues coprime to \(d\). "
+        r"\(e^\star\) is the least \(n\) that makes the difference of two "
+        r"equal-tail \(q\)-rationals a finite Laurent polynomial; the "
+        r"impossibility residues (no finite \(n\)) are marked on the floor."
+    ),
+    "degree-collapse": (
+        r"Plots \(\deg S\) against the bound \(d-1\) over the coprime grid. "
+        r"The dashed diagonal \(\deg S=d-1\) is the saturating "
+        r"\(a\equiv\pm1\pmod d\) locus (\(S=[d]_q\)); the drop below it is the "
+        r"collapse depth, which for a squarefree \(S\) equals the totient weight "
+        r"\(\sum_{k\,\text{dropped}}\varphi(k)\) of the cancelled cyclotomic "
+        r"factors."
+    ),
+    "coefficients": (
+        r"The first \(N\) Taylor coefficients \(c_0,c_1,\dots\) of "
+        r"\(\left[x\right]_q=\sum_k c_k q^{k}\) for any real \(x\). These "
+        r"stabilise as the continued fraction of \(x\) is refined, so the "
+        r"leading coefficients are exact."
+    ),
+    "laurent": (
+        r"The MGO Laurent expansion of \(\left[x\right]_q\) through "
+        r"\(q^{\text{order}}\), together with its integer-part prefix: the first "
+        r"\(\lfloor x\rfloor\) coefficients are all \(1\) and the coefficient at "
+        r"\(q^{\lfloor x\rfloor}\) is forced to \(0\)."
+    ),
+    "prefix": (
+        r"The forced opening block of \(\left[x\right]_q\): the first "
+        r"\(\lfloor x\rfloor\) coefficients equal \(1\) and the next is \(0\), "
+        r"so \(\left[x\right]_q\) begins like \([\lfloor x\rfloor]_q\) "
+        r"regardless of the fractional part."
+    ),
+    "locked": (
+        r"How many Laurent coefficients of \(\left[x\right]_q\) are pinned down "
+        r"by the \(n\)-th convergent of \(x\): the partial sum \(S_n\) of the "
+        r"continued-fraction terms fixes the coefficients \(q^0\) through "
+        r"\(q^{\,S_n-2}\)."
+    ),
+    "shift": (
+        r"Moves the argument by one using the exact relations "
+        r"\(\left[x+1\right]_q = q\left[x\right]_q + 1\) and "
+        r"\(\left[x-1\right]_q = (\left[x\right]_q-1)/q\)."
+    ),
+    "readouts": (
+        r"Pattern read-outs over the first \(N\) coefficients of "
+        r"\(\left[x\right]_q\): the first nonzero index, the first negative "
+        r"index, the largest absolute coefficient, and the number of zeros. "
+        r"Useful for spotting zero-runs and sign flips."
+    ),
+    "radius": (
+        r"A running-max root-test estimate of the radius of convergence "
+        r"\(\rho\!\left(\left[x\right]_q\right)=\exp\!\big(-\max_k "
+        r"\tfrac{\ln|c_k|}{k}\big)\). It is biased high at finite \(N\) and "
+        r"decreases toward the true radius as \(N\) grows. For a rational "
+        r"\(x\), \(\rho\) is the modulus of the nearest pole of \(S(q)\)."
+    ),
+    "fingerprint": (
+        r"A named, fixed-length, deterministic feature vector "
+        r"\(\varphi\!\left(\left[x\right]_q\right)\in\mathbb{R}^{m}\) of a "
+        r"constant, combining continued-fraction terms, coefficients, and a "
+        r"radius estimate, for nearest-neighbour comparison between constants."
+    ),
+    "certificate": (
+        r"The coefficients of \(\left[x\right]_q\) with a ready-to-paste LaTeX "
+        r"<code>booktabs</code> table and a referee-checkable derivation, so a "
+        r"result can be dropped straight into a paper."
+    ),
+    "q-sum": (
+        r"The series sum \(\left[x\right]_q+\left[y\right]_q\) of the two "
+        r"\(q\)-series, coefficient by coefficient. Note this is not "
+        r"\(\left[x+y\right]_q\): the map \(x\mapsto\left[x\right]_q\) is not a "
+        r"ring homomorphism."
+    ),
+    "q-product": (
+        r"The series product \(\left[x\right]_q\cdot\left[y\right]_q\), "
+        r"coefficient by coefficient. As with the sum, this is not "
+        r"\(\left[xy\right]_q\); the deficit measures the gap."
+    ),
+    "deficit": (
+        r"The deficit \(\left[x\circ y\right]_q-\left(\left[x\right]_q\circ"
+        r"\left[y\right]_q\right)\) for \(\circ\in\{+,\cdot\}\): how far the "
+        r"series sum or product sits from the \(q\)-analog of the real "
+        r"\(x\circ y\). At \(q=1\) both sides agree so the deficit is \(0\); the "
+        r"\(q=0\) value is a structural check."
+    ),
+    "quad-arith": (
+        r"Exact \(x\circ y\) for two quadratic irrationals, read off from the "
+        r"dominant (Perron) eigenvector of the continued-fraction transfer "
+        r"matrix \(K=M_x\otimes M_y\). Reproduces the golden-plus-silver worked "
+        r"example and cross-checks against direct arithmetic."
+    ),
+    "negation": (
+        r"The Jouteur \(q\)-negation \(\left[-x\right]_q\), an involution from "
+        r"the \(\mathrm{PGL}_2(\mathbb{Z})\) action (arXiv:2503.02122), and the "
+        r"sum \(\left[x\right]_q+\left[-x\right]_q\) with its finiteness verdict."
+    ),
+    "finiteness": (
+        r"Tests whether \(\left[x\right]_q+\left[-x\right]_q\) is a finite "
+        r"Laurent polynomial. It is finite exactly for pure square roots "
+        r"(trace-zero quadratics), where \(-x\) is the Galois conjugate and the "
+        r"sum is the \(q\)-trace (Ovsienko, Example 6.4)."
+    ),
+    "frieze": (
+        r"The Conway-Coxeter frieze of \(\tfrac{a}{b}>1\) with the "
+        r"\(q\)-coefficient polynomial overlaid on every cell. Each diamond "
+        r"satisfies the unimodular rule \(ad-bc=1\); at \(q=1\) it becomes the "
+        r"classical integer frieze."
+    ),
+    "coeff-surface": (
+        r"A 3D surface of the Taylor coefficients \(c_n\!\left("
+        r"\left[x\right]_q\right)\) as both \(n\) and \(x\) vary: zero-runs are "
+        r"valleys and sign flips cross the floor."
+    ),
+    "root-sweep": (
+        r"Stacks the complex roots of \(R(q)\) for "
+        r"\(\left[\tfrac{a}{b}\right]_q\) as the denominator \(b\) sweeps: "
+        r"cyclotomic roots stay pinned on the unit circle while the core drifts."
+    ),
+    "radius-grid": (
+        r"The radius of convergence "
+        r"\(\rho\!\left(\left[\tfrac{a}{b}\right]_q\right)\) (the nearest pole "
+        r"\(|q|\)) over a Farey grid, drawn as a number line, Ford circles, or "
+        r"an \((a,b)\) grid."
+    ),
+    "oeis": (
+        r"Looks a coefficient sequence up in the Online Encyclopedia of Integer "
+        r"Sequences, re-verifying the top hits against the full b-file and "
+        r"checking small mod-\(p\) reductions."
+    ),
+}
+
+# Click-to-open explanations for each property row of the S(q) properties panel.
+# Keyed by the exact row label the s-properties branch emits; the values carry
+# inline LaTeX and a list of the values the property can take and what they mean.
+_SPROPS_GLOSSARY: dict[str, dict[str, Any]] = {
+    "kind of S": {
+        "title": "Kind of S (the regime)",
+        "tex": (
+            r"Which of four shapes the denominator \(S(q)\) takes. The first two "
+            r"are the saturating regimes (a finite saturation index exists); the "
+            r"last two are the impossibility branch, where \(S\) divides no "
+            r"\([n]_q\), so the difference of two equal-tail \(q\)-rationals over "
+            r"\(S\) is never a finite Laurent polynomial."
+        ),
+        "values": [
+            r"<b>full \([d]_q\)</b>: \(S=[d]_q\), the whole \(q\)-integer "
+            r"(no collapse), occurring exactly when \(a\equiv\pm1\pmod d\);",
+            r"<b>proper collapse</b>: a strict squarefree-cyclotomic "
+            r"subproduct of \([d]_q\) (e.g. \(5/12\) gives "
+            r"\(\Phi_2\Phi_3\Phi_4\)); still divides some \([n]_q\);",
+            r"<b>non-squarefree</b>: a repeated cyclotomic factor (e.g. "
+            r"\(3/8\) gives \(\Phi_2^{2}\Phi_4\)); divides no \([n]_q\);",
+            r"<b>non-cyclotomic</b>: carries a non-cyclotomic core factor "
+            r"(e.g. \(2/15\)); divides no \([n]_q\).",
+        ],
+    },
+    "cyclotomic index set T": {
+        "title": "Cyclotomic index set T",
+        "tex": (
+            r"The set \(T\) of indices \(k\) for which the cyclotomic polynomial "
+            r"\(\Phi_k(q)\) divides \(S\), so (in the squarefree case) "
+            r"\(S=\prod_{k\in T}\Phi_k\). Since "
+            r"\([n]_q=\prod_{k\mid n,\,k\ge2}\Phi_k\) is squarefree, every "
+            r"admissible \(S\) is a subset product of these factors (Remark 2)."
+        ),
+        "values": [
+            r"a finite set of integers \(k\ge2\), e.g. \(T=\{2,3,4\}\) for "
+            r"\(5/12\);",
+            r"<b>empty</b>: \(S\) has no cyclotomic factor at all (a purely "
+            r"non-cyclotomic denominator).",
+        ],
+    },
+    "saturation index e* = lcm(T)": {
+        "title": "Saturation index e*",
+        "tex": (
+            r"The saturation index "
+            r"\(e^\star(S)=\operatorname{lcm}(T)\) is the smallest \(n\ge1\) for "
+            r"which \(S(q)\) divides \([n]_q\). Because a cyclotomic \(\Phi_k\) "
+            r"divides \([n]_q\) iff \(k\mid n\), the product "
+            r"\(\prod_{k\in T}\Phi_k\) divides \([n]_q\) iff every \(k\in T\) "
+            r"divides \(n\), i.e. iff \(\operatorname{lcm}(T)\mid n\). It is the "
+            r"least shift making the equal-tail difference finite."
+        ),
+        "values": [
+            r"a positive integer (the minimal \(n\)), e.g. \(e^\star=12\) for "
+            r"\(5/12\) and \(e^\star=15\) for \(4/15\);",
+            r"<b>undefined</b>: \(S\) is not a squarefree product of "
+            r"cyclotomics, so no \(n\) works.",
+        ],
+    },
+    "minimal n with S | [n]_q": {
+        "title": "Minimal saturating n",
+        "tex": (
+            r"The smallest \(n\) with \(S(q)\mid[n]_q\). It equals the "
+            r"saturation index \(e^\star\), and every multiple of \(e^\star\) "
+            r"also works; nothing smaller does."
+        ),
+        "values": [
+            r"\(n=e^\star\) when \(S\) is squarefree-cyclotomic;",
+            r"<b>none</b>: no finite \(n\) exists (the impossibility branch).",
+        ],
+    },
+    "deg S  (bound d-1)": {
+        "title": "Degree of S and the bound",
+        "tex": (
+            r"The polynomial degree \(\deg S\), shown against the upper bound "
+            r"\(d-1\). The degree theorem says \(\deg S\le d-1\) for every "
+            r"\(a/d\), with equality iff \(S=[d]_q\). For a squarefree \(S\), "
+            r"\(\deg S=\sum_{k\in T}\varphi(k)\) (a sum of Euler totients)."
+        ),
+        "values": [
+            r"any \(0\le\deg S\le d-1\); equality \(\deg S=d-1\) is the "
+            r"no-collapse case \(S=[d]_q\);",
+            r"a smaller value signals a collapse, the gap being the totient "
+            r"weight of the dropped \(\Phi_k\).",
+        ],
+    },
+    "deg S = d-1  (so S = [d]_q)": {
+        "title": "Saturates the degree bound?",
+        "tex": (
+            r"Whether the degree bound is tight, \(\deg S=d-1\). This happens "
+            r"if and only if \(S=[d]_q\), the full \(q\)-integer, which happens "
+            r"if and only if \(a\equiv\pm1\pmod d\)."
+        ),
+        "values": [
+            r"<b>yes</b>: \(S=[d]_q\), the saturating \(a\equiv\pm1\) locus;",
+            r"<b>no</b>: a proper collapse or the impossibility branch, "
+            r"\(\deg S<d-1\).",
+        ],
+    },
+    "equality locus a == +/-1 (mod d)": {
+        "title": "Equality locus",
+        "tex": (
+            r"Whether the numerator sits on the locus "
+            r"\(a\equiv1\) or \(a\equiv d-1\pmod d\). The degree theorem "
+            r"identifies this locus exactly with the case \(S=[d]_q\), so it is "
+            r"the predicted \(\deg S=d-1\) set."
+        ),
+        "values": [
+            r"<b>on locus</b>: \(a\equiv\pm1\pmod d\), so \(S=[d]_q\);",
+            r"<b>off locus</b>: every other residue, where \(S\) collapses or "
+            r"leaves the cyclotomic world.",
+        ],
+    },
+    "S(1) = d": {
+        "title": "The invariant S(1) = d",
+        "tex": (
+            r"Evaluating the denominator at \(q=1\) always returns the ordinary "
+            r"denominator \(d\): \(S(1)=d\). This is a built-in consistency "
+            r"check, since \(\left[\tfrac{a}{d}\right]_q\to\tfrac{a}{d}\) as "
+            r"\(q\to1\)."
+        ),
+        "values": [
+            r"<b>ok</b>: \(S(1)=d\) as it must;",
+            r"<b>FAIL</b>: would indicate a bug; never expected.",
+        ],
+    },
+    "S(0) = 1": {
+        "title": "The invariant S(0) = 1",
+        "tex": (
+            r"The constant term of the reduced denominator is always \(1\): "
+            r"\(S(0)=1\), so \(q\nmid S\). This makes \(S\) the same element of "
+            r"\(\mathbb{Z}[q]\) and the Laurent ring \(\mathbb{Z}[q,q^{-1}]\), "
+            r"with no \(q\)-power unit to clear."
+        ),
+        "values": [
+            r"<b>ok</b>: \(S(0)=1\) as it must;",
+            r"<b>FAIL</b>: would indicate a bug; never expected.",
+        ],
+    },
+    "S squarefree": {
+        "title": "Is S squarefree?",
+        "tex": (
+            r"Whether every irreducible factor of \(S\) occurs to the first "
+            r"power. Saturation needs a squarefree \(S\): a repeated factor "
+            r"(e.g. \(\Phi_2^{2}\) for \(3/8\)) cannot divide the squarefree "
+            r"\([n]_q\), so such an \(S\) divides no \([n]_q\)."
+        ),
+        "values": [
+            r"<b>yes</b>: a clean subset product of distinct \(\Phi_k\);",
+            r"<b>no</b>: a repeated cyclotomic factor, the non-squarefree "
+            r"impossibility branch.",
+        ],
+    },
+    "S a product of cyclotomics": {
+        "title": "Is S a product of cyclotomics?",
+        "tex": (
+            r"Whether \(S\) factors entirely into cyclotomic polynomials "
+            r"\(\Phi_k\), with no non-cyclotomic ``core'' factor. Only a "
+            r"cyclotomic \(S\) can divide some \([n]_q\)."
+        ),
+        "values": [
+            r"<b>yes</b>: \(S=\prod_{k\in T}\Phi_k\) (possibly with "
+            r"repeats);",
+            r"<b>no</b>: \(S\) carries a non-cyclotomic core (e.g. \(2/15\)), "
+            r"so it divides no \([n]_q\).",
+        ],
+    },
+}
+
+
 def _annotate_registry() -> None:
     """Add the MathJax symbol and per-field LaTeX defaults to OPERATIONS.
 
     The card and panel symbols render as math; a math-input field shows its
-    example as a typeset default (for instance 3/2 as a fraction). Computing the
-    LaTeX once here keeps the page template free of any math of its own.
+    example as a typeset default (for instance 3/2 as a fraction). The longer
+    "What is this?" description is attached too. Computing the LaTeX once here
+    keeps the page template free of any math of its own.
     """
     for op, meta in OPERATIONS.items():
         meta["tex"] = _TEX_SYMBOL.get(op, "")
+        meta["about"] = _ABOUT.get(op, "")
         if meta["input_kind"] in (_REAL, _RATIONAL):
             for field in meta["fields"]:
                 if field["name"] in ("input", "y"):
@@ -1124,8 +1552,86 @@ def compute(
                 },
             }
 
+        if op == "s-properties":
+            from .factor import denominator_expr, factor_qreal, s_properties
+
+            result = factor_qreal(input_text)
+            S = denominator_expr(result)
+            p = s_properties(input_text)
+            latex = r"S(q)\ \text{of}\ \left[\tfrac{%d}{%d}\right]_q = %s" % (
+                p.a,
+                p.d,
+                sp.latex(S),
+            )
+            t_str = (
+                "{" + ", ".join(str(k) for k in p.index_set_T) + "}"
+                if p.index_set_T
+                else "empty"
+            )
+            if p.saturation_index is None:
+                kind_str = (
+                    "non-cyclotomic (divides no [n]_q)"
+                    if not p.is_cyclotomic
+                    else "non-squarefree (divides no [n]_q)"
+                )
+                sat_str = "none"
+            elif p.is_full_qint:
+                kind_str = "full q-integer [d]_q"
+                sat_str = f"{p.saturation_index} (= d)"
+            else:
+                kind_str = "proper cyclotomic collapse"
+                sat_str = str(p.saturation_index)
+            rows = [
+                ["kind of S", kind_str],
+                ["cyclotomic index set T", t_str],
+                ["saturation index e* = lcm(T)", sat_str],
+                ["minimal n with S | [n]_q", sat_str],
+                ["deg S  (bound d-1)", f"{p.deg_S}  ({p.deg_bound})"],
+                ["deg S = d-1  (so S = [d]_q)", "yes" if p.saturates_bound else "no"],
+                [
+                    "equality locus a == +/-1 (mod d)",
+                    "yes" if p.equality_locus else "no",
+                ],
+                ["S(1) = d", f"{p.S_at_1}  ({'ok' if p.S_at_1_ok else 'FAIL'})"],
+                ["S(0) = 1", f"{p.S_at_0}  ({'ok' if p.S_at_0_ok else 'FAIL'})"],
+                ["S squarefree", "yes" if p.is_squarefree else "no"],
+                ["S a product of cyclotomics", "yes" if p.is_cyclotomic else "no"],
+            ]
+            # Attach the click-to-open glossary for the rows that have one, so
+            # the front end can make each property label expand to an
+            # explanation with LaTeX and a list of what its values mean.
+            row_info = {
+                label: _SPROPS_GLOSSARY[label]
+                for label, _ in rows
+                if label in _SPROPS_GLOSSARY
+            }
+            return {
+                "latex": latex,
+                "text": f"S(q) = {sp.sstr(S)}",
+                "rows": rows,
+                "meta": {
+                    "op": op,
+                    "a": p.a,
+                    "d": p.d,
+                    "index_set_T": p.index_set_T,
+                    "saturation_index": p.saturation_index,
+                    "deg_S": p.deg_S,
+                    "deg_bound": p.deg_bound,
+                    "saturates_bound": p.saturates_bound,
+                    "is_full_qint": p.is_full_qint,
+                    "is_collapse": p.is_collapse,
+                    "is_squarefree": p.is_squarefree,
+                    "is_cyclotomic": p.is_cyclotomic,
+                    "S_at_1": p.S_at_1,
+                    "S_at_0": p.S_at_0,
+                    "equality_locus": p.equality_locus,
+                    "rowInfo": row_info,
+                },
+            }
+
         if op == "roots":
             from .factor import (
+                classify_poles,
                 classify_roots,
                 denominator_expr,
                 factor_qreal,
@@ -1149,13 +1655,14 @@ def compute(
             S_coeffs = [int(c) for c in reversed(S_poly.all_coeffs())]
             # Poles of [a/b]_q are the roots of S(q); the nearest one to the
             # origin is the radius of convergence of the power series [a/b]_q.
-            poles = []
-            for root in (S_poly.nroots() if S_poly.degree() >= 1 else []):
-                c = complex(root)
-                poles.append(
-                    {"re": float(c.real), "im": float(c.imag), "mod": abs(c)}
-                )
-            radius = min((p["mod"] for p in poles), default=None)
+            # classify_poles labels each pole by its exact cyclotomic index, so
+            # the overlay can mark a cyclotomic pole (on |q| = 1) apart from a
+            # core pole (which can leave the unit circle and drop the radius
+            # below 1), and tag the nearest pole that sets the radius.
+            pole_data = classify_poles(result)
+            poles = pole_data["poles"]
+            radius = pole_data["radius"]
+            radius_index = pole_data["radius_index"]
             latex = r"R(q) = %s" % sp.latex(R)
             cyclo = (
                 ", ".join(
@@ -1174,11 +1681,25 @@ def compute(
             ]
             if result.k:
                 rows.append(["q^k prefix split off (k)", str(result.k)])
+            n_cyc_pole = sum(1 for p in poles if p["kind"] == "cyclotomic")
+            n_core_pole = sum(1 for p in poles if p["kind"] == "core")
+            if poles:
+                rows.append(
+                    [
+                        "poles of [a/b]_q (zeros of S): cyclotomic / core",
+                        f"{n_cyc_pole} / {n_core_pole}",
+                    ]
+                )
             if radius is not None:
+                where = (
+                    f"on Phi_{radius_index} (|q| = 1)"
+                    if radius_index is not None
+                    else "a non-cyclotomic core pole (|q| may be < 1)"
+                )
                 rows.append(
                     [
                         "radius of convergence (nearest pole |q|)",
-                        "%.6f" % radius,
+                        "%.6f  (%s)" % (radius, where),
                     ]
                 )
             return {
@@ -1194,6 +1715,7 @@ def compute(
                     "s_coeffs": S_coeffs,
                     "poles": poles,
                     "radius": radius,
+                    "radius_index": radius_index,
                     "cyclotomic_support": plot["cyclotomic_support"],
                     "core_degree": plot["core_degree"],
                     "degree": plot["degree"],
@@ -1347,6 +1869,107 @@ def compute(
                     "plot3d": {"kind": "radius-grid", "points": points,
                                "a_max": a_max, "b_max": b_max},
                 },
+            }
+
+        if op == "s-atlas":
+            from .factor import REGIME_LABELS
+
+            d_max = max(2, min(int(str(input_text).strip()), 24))
+            a_max_raw = _int_arg(args, "a_max", 0)
+            a_max = a_max_raw if a_max_raw > 0 else None
+            res = _app.compute_satlas(d_max, a_max)
+            atlas = res["data"]
+            counts = atlas["regime_counts"]
+            latex = (
+                r"S\!\left(\tfrac{a}{d}\right)\ \text{regime over}\ d\le %d" % d_max
+            )
+            rows = [
+                [REGIME_LABELS[r], str(counts[r])]
+                for r in ("full", "collapse", "nonsquarefree", "noncyclotomic")
+            ]
+            rows.append(["fractions", str(len(atlas["cells"]))])
+            appearances = atlas["index_appearances"]
+            rows.append(
+                [
+                    "cyclotomic factor appearances",
+                    ", ".join(f"Phi_{k}:{n}" for k, n in appearances.items()),
+                ]
+            )
+            # the same tally as typeset math, so the row reads
+            # Phi_2 : 17,  Phi_3 : 14, ... with real subscripts (rendered by the
+            # front end when meta.rowTex names the row).
+            appearances_tex = ",\\ ".join(
+                r"\Phi_{%d}\!:\!%d" % (k, n) for k, n in appearances.items()
+            )
+            return {
+                "latex": latex,
+                "text": (
+                    f"S(q) regime atlas over the coprime grid d <= {d_max}: "
+                    f"{counts['full']} full [d]_q, {counts['collapse']} collapse, "
+                    f"{counts['nonsquarefree']} non-squarefree, "
+                    f"{counts['noncyclotomic']} non-cyclotomic"
+                ),
+                "rows": rows,
+                "meta": {
+                    "op": op,
+                    "plot3d": {"kind": "s-atlas", **atlas},
+                    "rowTex": {"cyclotomic factor appearances": appearances_tex},
+                },
+            }
+
+        if op == "saturation-explorer":
+            from .factor import REGIME_LABELS
+
+            d = max(2, int(str(input_text).strip()))
+            res = _app.compute_saturation(d)
+            ex = res["data"]
+            points = ex["points"]
+            finite = [pt for pt in points if pt["e_star"] is not None]
+            latex = r"e^{\star}\!\left(\tfrac{a}{%d}\right)\ \text{vs}\ a" % d
+            rows = [
+                [
+                    f"{pt['a']}/{d}",
+                    (str(pt["e_star"]) if pt["e_star"] is not None else "none")
+                    + f"  ({REGIME_LABELS[pt['regime']]})",
+                ]
+                for pt in points
+            ]
+            return {
+                "latex": latex,
+                "text": (
+                    f"saturation index e* across a/{d}: {len(finite)} of "
+                    f"{len(points)} residues have a finite e*"
+                ),
+                "rows": rows,
+                "meta": {"op": op, "plot3d": {"kind": "saturation", **ex}},
+            }
+
+        if op == "degree-collapse":
+            d_max = max(2, min(int(str(input_text).strip()), 24))
+            a_max_raw = _int_arg(args, "a_max", 0)
+            a_max = a_max_raw if a_max_raw > 0 else None
+            res = _app.compute_degcollapse(d_max, a_max)
+            dc = res["data"]
+            cells = dc["cells"]
+            saturating = sum(1 for c in cells if c["saturates_bound"])
+            latex = r"\deg S\ \text{vs}\ d-1\ \text{over}\ d\le %d" % d_max
+            return {
+                "latex": latex,
+                "text": (
+                    f"deg S vs d-1 over the coprime grid d <= {d_max}: "
+                    f"{saturating} of {len(cells)} fractions saturate the bound "
+                    f"(S = [d]_q); collapse-depth totient law "
+                    f"{'holds' if dc['depth_law_holds'] else 'FAILS'}"
+                ),
+                "rows": [
+                    ["fractions", str(len(cells))],
+                    ["on the diagonal deg S = d-1 (S = [d]_q)", str(saturating)],
+                    [
+                        "collapse-depth law (squarefree S)",
+                        "holds" if dc["depth_law_holds"] else "FAILS",
+                    ],
+                ],
+                "meta": {"op": op, "plot3d": {"kind": "degree-collapse", **dc}},
             }
 
         if op == "certificate":
@@ -1575,6 +2198,156 @@ def _index_html() -> str:
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# Optional update check. On the first request the server asks the PyPI JSON API
+# for the latest released qreals version and compares it with the running one,
+# so the page can show an unobtrusive "update available" banner. It is
+# best-effort: a short timeout, cached once per process, and silent on any
+# failure (offline, PyPI down, or not yet published). Set the environment
+# variable QREALS_NO_UPDATE_CHECK to any value to turn it off (CI, air-gapped).
+# --------------------------------------------------------------------------
+
+_PYPI_JSON_URL = "https://pypi.org/pypi/qreals/json"
+_update_cache: dict[str, Any] | None = None
+
+# A short changelog shipped with the package, keyed by version. Each note is a
+# {change, helps} pair carrying inline LaTeX (\( ... \)); the web page renders
+# them as the "What's new" patch notes, both in the update banner and from a
+# footer link. Keep newest first.
+CHANGELOG: dict[str, dict[str, Any]] = {
+    "0.1.3": {
+        "summary": "Denominator S(q) tools and an update checker.",
+        "notes": [
+            {
+                "change": r"Added the \(S(q)\) cyclotomic-factor atlas: a "
+                r"coloured \((a,d)\) grid of each denominator's regime.",
+                "helps": r"See at a glance where \(S=[d]_q\), where it "
+                r"collapses, and where it divides no \([n]_q\).",
+            },
+            {
+                "change": r"Added the saturation-index explorer for a fixed "
+                r"\(d\): \(e^\star(a/d)=\operatorname{lcm}(T)\) versus \(a\).",
+                "helps": r"Reads off the least \(n\) making an equal-tail "
+                r"difference finite, and the residues where none exists.",
+            },
+            {
+                "change": r"Added the degree-collapse map: \(\deg S\) against "
+                r"the bound \(d-1\).",
+                "helps": r"Shows how tight the bound \(\deg S\le d-1\) is and "
+                r"how deep each collapse runs.",
+            },
+            {
+                "change": r"The roots view now overlays the poles of \(S(q)\), "
+                r"labelled by cyclotomic index, marking the nearest as the "
+                r"radius of convergence \(\rho\).",
+                "helps": r"Connects the denominator's factorisation to the "
+                r"pole structure and the radius question.",
+            },
+            {
+                "change": r"Each S(q) property is now click-to-explain, and "
+                r"every tool has a LaTeX description.",
+                "helps": r"Makes the panel self-documenting for a newcomer.",
+            },
+        ],
+    },
+    "0.1.2": {
+        "summary": "Earlier release.",
+        "notes": [
+            {
+                "change": r"The denominator \(S(q)\) properties panel: index "
+                r"set \(T\), saturation index, degree bound, and invariants.",
+                "helps": r"Surfaces the structure of \(S(q)\), not just its "
+                r"factored form.",
+            },
+        ],
+    },
+}
+
+
+def changelog_for(version: str | None) -> dict[str, Any] | None:
+    """The changelog entry for a version (summary + notes), or None."""
+    if not version:
+        return None
+    return CHANGELOG.get(version)
+
+
+def _parse_version(text: str) -> tuple[int, ...]:
+    """A lenient dotted-numeric version key, e.g. '0.1.10' -> (0, 1, 10).
+
+    Only the leading numeric components are read; a trailing pre-release or
+    local tag (rc1, +local) is dropped, which is enough to compare releases.
+    """
+    parts: list[int] = []
+    for chunk in str(text).split("."):
+        num = ""
+        for ch in chunk:
+            if ch.isdigit():
+                num += ch
+            else:
+                break
+        if num == "":
+            break
+        parts.append(int(num))
+    return tuple(parts)
+
+
+def _fetch_latest_version(timeout: float = 2.5) -> str | None:
+    """The latest qreals version on PyPI, or None on any failure."""
+    import urllib.request
+
+    req = urllib.request.Request(
+        _PYPI_JSON_URL, headers={"User-Agent": f"qreals/{__version__}"}
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - https
+        data = json.loads(resp.read().decode("utf-8"))
+    version = data.get("info", {}).get("version")
+    return str(version) if version else None
+
+
+def check_for_update(force: bool = False) -> dict[str, Any]:
+    """Compare the running version with the latest on PyPI (cached, fail-silent).
+
+    Returns {current, latest, update_available, checked}. `latest` is None and
+    `checked` is False when the check was skipped (opt-out) or could not reach
+    PyPI; `update_available` is True only when PyPI is strictly newer. The
+    result is cached for the life of the process, so it is one request per
+    `qreals serve`, not one per page load.
+    """
+    global _update_cache
+    if _update_cache is not None and not force:
+        return _update_cache
+    import os
+
+    result: dict[str, Any] = {
+        "current": __version__,
+        "latest": None,
+        "update_available": False,
+        "checked": False,
+        # the running version's patch notes, always available so the page can
+        # show "What's new" even when there is no update to announce.
+        "current_notes": changelog_for(__version__),
+        # the new version's notes when the shipped changelog happens to know
+        # them; usually None for a strictly-newer remote version.
+        "latest_notes": None,
+    }
+    if os.environ.get("QREALS_NO_UPDATE_CHECK"):
+        _update_cache = result
+        return result
+    try:
+        latest = _fetch_latest_version()
+    except Exception:  # noqa: BLE001 - the check must never break serve
+        latest = None
+    if latest:
+        result["latest"] = latest
+        result["checked"] = True
+        result["update_available"] = (
+            _parse_version(latest) > _parse_version(__version__)
+        )
+        result["latest_notes"] = changelog_for(latest)
+    _update_cache = result
+    return result
+
+
 def _have(name: str) -> bool:
     import importlib.util
 
@@ -1649,11 +2422,15 @@ def _build_fastapi_app() -> Any:
         payload = await _payload(request)
         return JSONResponse(export_bundle(payload))
 
+    async def version_endpoint(_request: Request) -> Any:
+        return JSONResponse(check_for_update())
+
     application.add_route("/", index, methods=["GET"])
     application.add_route("/compute", compute_endpoint, methods=["POST"])
     application.add_route("/preview", preview_endpoint, methods=["POST"])
     application.add_route("/certificate", certificate_endpoint, methods=["POST"])
     application.add_route("/export", export_endpoint, methods=["POST"])
+    application.add_route("/version", version_endpoint, methods=["GET"])
     return application
 
 
@@ -1700,6 +2477,10 @@ def _build_flask_app() -> Any:
     def export_endpoint() -> Any:
         payload = request.get_json(force=True, silent=True) or {}
         return jsonify(export_bundle(payload))
+
+    @application.get("/version")
+    def version_endpoint() -> Any:
+        return jsonify(check_for_update())
 
     return application
 
