@@ -847,6 +847,101 @@ def compute_collapse(d: int) -> Result:
     }
 
 
+def compute_conj(name: str | None = None, until: int | None = None) -> Result:
+    """One conjecture scan, or the registry listing, as a result screen.
+
+    With no name (or "list") the registered conjectures are listed with
+    their statements. With a name the harness scans instances in order up to
+    the bound (the entry default when none is given) and reports either the
+    first counterexample with its full dossier or the range covered, the
+    instance count, the wall time, and the three nearest misses by the
+    registered metric.
+    """
+    from . import conjectures as conj_mod
+
+    if not name or name == "list":
+        data = conj_mod.registry_data()
+        blocks: list[dict[str, Any]] = []
+        for c in data["conjectures"]:
+            blocks.append(
+                {
+                    "kind": "kv",
+                    "pairs": [
+                        (c["name"], ""),
+                        ("statement", c["statement"]),
+                        ("instances", c["space"]),
+                        ("nearest-miss metric", c["miss_metric"]),
+                        ("default --until", str(c["default_until"])),
+                    ],
+                }
+            )
+        return {
+            "kind": "conj-list",
+            "title": "conjecture registry",
+            "blocks": blocks,
+            "data": data,
+        }
+    report = conj_mod.run_conjecture(name, until=until)
+    blocks = [
+        {
+            "kind": "kv",
+            "pairs": [
+                ("conjecture", report["name"]),
+                ("statement", report["statement"]),
+            ],
+        }
+    ]
+    if report["counterexample"] is not None:
+        c = report["counterexample"]
+        blocks.append(
+            {
+                "kind": "kv",
+                "pairs": [("COUNTEREXAMPLE", c["label"]), ("violates", c["violates"])],
+            }
+        )
+        blocks.append(
+            {"kind": "kv", "pairs": [("", line) for line in c["dossier"]]}
+        )
+    else:
+        blocks.append(
+            {
+                "kind": "kv",
+                "pairs": [
+                    ("range covered", report["range"]),
+                    ("instances checked", str(report["instances_checked"])),
+                    ("wall time", f"{report['wall_time_seconds']:.2f} s"),
+                ],
+            }
+        )
+        if report["nearest_misses"]:
+            blocks.append(
+                {
+                    "kind": "table",
+                    "columns": ["miss", "nearest miss"],
+                    "rows": [
+                        [str(m["miss"]), m["label"]]
+                        for m in report["nearest_misses"]
+                    ],
+                }
+            )
+        blocks.append(
+            {
+                "kind": "note",
+                "text": (
+                    "The conjecture survives the scanned range. Smaller miss "
+                    "values are nearer to a counterexample by the registered "
+                    "metric: " + report["miss_metric"] + "."
+                ),
+            }
+        )
+    return {
+        "kind": "conj",
+        "title": f"conjecture scan: {report['name']}",
+        "blocks": blocks,
+        "data": report,
+    }
+
+
 def _t_set_str(indices: list[int]) -> str:
     """Render a cyclotomic index set T as {k, ...} or 'empty'."""
     return "{" + ", ".join(str(k) for k in indices) + "}" if indices else "empty"
@@ -1948,6 +2043,30 @@ def _prompt_collapse(qst: Any) -> dict[str, Any] | None:
     return {"d": d}
 
 
+def _prompt_conj(qst: Any) -> dict[str, Any] | None:
+    from .conjectures import REGISTRY
+
+    names = [n for n, c in REGISTRY.items() if not c.hidden]
+    answer = qst.text(
+        "conjecture name, or 'list' for the registry  "
+        f"({', '.join(names)})",
+        default="list",
+    ).ask()
+    if answer is None:
+        return None
+    name = answer.strip()
+    if not name or name == "list":
+        return {"name": "list"}
+    if name not in names:
+        return {"name": "list"}
+    until = _ask_int(
+        qst, "scan bound N", str(REGISTRY[name].default_until), low=2
+    )
+    if until is None:
+        return None
+    return {"name": name, "until": until}
+
+
 def _prompt_satlas(qst: Any) -> dict[str, Any] | None:
     d_max = _ask_int(qst, "max denominator d", "12", low=2)
     if d_max is None:
@@ -2196,6 +2315,14 @@ CAPABILITIES: list[Capability] = [
         "class, and the c(d) count",
         _prompt_collapse,
         compute_collapse,
+    ),
+    Capability(
+        "conj",
+        "Conjecture falsifier registry",
+        "scan a registered conjecture for its first counterexample, or list "
+        "the registry; survivors report range, count, and nearest misses",
+        _prompt_conj,
+        compute_conj,
     ),
     Capability(
         "satlas",
@@ -2942,6 +3069,23 @@ def _bricks_help_epilog() -> str:
     )
 
 
+# The worked example shown by `qreals conj --help`. Built from the live
+# registry so the help text can never drift from the tool; the test suite
+# runs the command and asserts the output matches this block byte for byte.
+def _conj_help_epilog() -> str:
+    import textwrap
+
+    from .conjectures import registry_data
+
+    payload = json.dumps(registry_data(), indent=2)
+    return (
+        "worked example:\n\n"
+        "  $ qreals conj list --json\n"
+        + textwrap.indent(payload, "  ")
+        + "\n"
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="qreals",
@@ -3090,6 +3234,44 @@ def _build_parser() -> argparse.ArgumentParser:
         help="emit the TeX block of the table (compiles standalone)",
     )
     add_json(p_collapse)
+
+    p_conj = sub.add_parser(
+        "conj",
+        help="conjecture falsifier: scan a registered conjecture for its "
+        "first counterexample, or 'list' the registry",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_conj_help_epilog(),
+    )
+    p_conj.add_argument(
+        "name",
+        help="a registered conjecture name, or 'list' to print the registry",
+    )
+    p_conj.add_argument(
+        "--until",
+        type=int,
+        default=None,
+        metavar="N",
+        help="scan bound (the entry's documented default when omitted)",
+    )
+    p_conj.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue a checkpointed scan from its state file",
+    )
+    p_conj.add_argument(
+        "--state",
+        default=None,
+        metavar="FILE",
+        help="state file for checkpoints (defaults to the per-user data dir)",
+    )
+    p_conj.add_argument(
+        "--checkpoint-seconds",
+        type=float,
+        default=60.0,
+        metavar="S",
+        help="checkpoint interval in seconds (default 60)",
+    )
+    add_json(p_conj)
 
     p_satlas = sub.add_parser(
         "satlas",
@@ -3585,7 +3767,42 @@ def main(argv: list[str] | None = None) -> int:
         return _run_saved(args)
     if args.command == "serve":
         return _run_serve(args)
+    if args.command == "conj":
+        return _run_conj(args)
     return _run_headless(args)
+
+
+def _run_conj(args: argparse.Namespace) -> int:
+    """Run the conjecture falsifier; exit 1 on a counterexample.
+
+    Both renderings come from the same report object: the human report and
+    the JSON payload print identical facts (G0.7), and the wall-time field
+    is the only nondeterministic one.
+    """
+    from . import conjectures as conj_mod
+
+    if args.name == "list":
+        if args.json:
+            print(json.dumps(conj_mod.registry_data(), indent=2))
+        else:
+            print("\n".join(conj_mod.registry_lines()))
+        return 0
+    try:
+        report = conj_mod.run_conjecture(
+            args.name,
+            until=args.until,
+            resume=args.resume,
+            state_file=args.state,
+            checkpoint_seconds=args.checkpoint_seconds,
+        )
+    except (ValueError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print("\n".join(conj_mod.report_lines(report)))
+    return 0 if report["survived"] else 1
 
 
 def _run_serve(args: argparse.Namespace) -> int:

@@ -83,6 +83,7 @@ subcommand (add `--json` for machine output), and a card in `qreals serve`.
 | Jump gap | The right and left q-versions of p/s and the factored gap between them. |
 | Denominator dossier `qreals denom a/d` | One screen per fraction: S(q) expanded and factored, the cyclotomic index set T, deg S vs d-1, the S(1) = d check, the class (FULL / COLLAPSE / REPEATED / NONCYC), a^2 mod d, and every coprime split d = d+ d- with its discrepancy classified EXACT, POLYNOMIAL, or RATIO. Flags: `--json`, `--tex`. |
 | Reverse table `qreals collapse d` | The dossier mapped over every numerator coprime to d, grouped by identical S: index set T, factored S, residues per prime-power part of d, realized splits with discrepancy class, RATIO numerators flagged, and the c(d) / non-cyclotomic counts. `--range d1..d2` emits the c(d) sequence one line per d, ready to pipe into `qreals oeis`. Flags: `--json`, `--tex`. |
+| Conjecture falsifier `qreals conj NAME` | A registry of falsifiable conjectures (`divisor`, `sqrt-law`, `indices-2ju`, `mult-two`, `floor3`, `negsum-period`) scanned counterexample-first: the run stops at the FIRST counterexample, prints its full dossier, and exits 1; a survivor reports the range covered, the instance count, the wall time, and the three nearest misses by the entry's registered metric, exiting 0. Long scans checkpoint every 60 seconds and continue with `--resume`. `qreals conj list` prints the registry with each statement. Flags: `--until N`, `--resume`, `--state FILE`, `--json`. |
 
 **q-reals**
 
@@ -139,8 +140,19 @@ class: COLLAPSE
 60 = 3 * 20   RATIO   (Phi_10 Phi_20) / Phi_6
 ```
 
-`qreals denom --help` carries the full worked example with its exact output;
-the test suite replays it, so the documentation cannot drift from the tool.
+```
+$ qreals conj floor3 --until 24
+conjecture: floor3
+statement: The q-continuant is injective on tails whose entries are all at least 3.
+range covered: tails with entries >= 3 and entry sum <= 24, ascending sum then lexicographic
+instances checked: 5895
+...
+verdict: survives the scanned range
+```
+
+`qreals denom --help` and `qreals conj --help` carry full worked examples with
+their exact output; the test suite replays them, so the documentation cannot
+drift from the tools.
 
 ## Optional extras
 
