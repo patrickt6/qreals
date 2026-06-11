@@ -525,6 +525,21 @@ def compute_sprops(a: int, b: int) -> Result:
     }
 
 
+# The worked example shown by `qreals collapse --help`. Built from the live
+# computation so the help text can never drift from the tool; the test suite
+# runs the command and asserts the output matches this block byte for byte.
+def _collapse_help_epilog() -> str:
+    import textwrap
+
+    payload = json.dumps(compute_collapse(12)["data"], indent=2)
+    return (
+        "worked example:\n\n"
+        "  $ qreals collapse 12 --json\n"
+        + textwrap.indent(payload, "  ")
+        + "\n"
+    )
+
+
 def compute_denom(a: int, b: int) -> Result:
     """The one-shot denominator dossier of [a/d]_q.
 
@@ -714,6 +729,119 @@ def compute_bricks(
     return {
         "kind": "bricks",
         "title": f"cyclotomic reference card of {formatter.qint_label(card.n)}",
+        "blocks": blocks,
+        "data": data,
+    }
+
+
+def compute_collapse(d: int) -> Result:
+    """The reverse table at one modulus d.
+
+    Every numerator a coprime to d, grouped by identical denominator S; per
+    group the index set T, the factored S, the residues of the group's
+    numerators modulo each prime-power part of d (fixed ascending-prime
+    order), and the coprime splits with their discrepancy class and the
+    numerators that realize them. Numerators realizing a RATIO split are
+    flagged. The footer counts c(d), the numerators whose S is a product of
+    distinct cyclotomic polynomials, beside the REPEATED and non-cyclotomic
+    counts.
+    """
+    from . import collapse as collapse_mod
+
+    t = collapse_mod.collapse_table(d)
+    data = collapse_mod.table_data(t)
+
+    blocks: list[dict[str, Any]] = [
+        {
+            "kind": "kv",
+            "pairs": [
+                ("modulus d", str(t.d)),
+                (
+                    "prime-power parts",
+                    " * ".join(str(pp) for pp in t.prime_powers),
+                ),
+                ("numerators coprime to d", str(t.numerators_total)),
+            ],
+        }
+    ]
+    for i, g in enumerate(t.groups, start=1):
+        pairs = [
+            ("numerators", collapse_mod.numerators_ascii(g)),
+            ("class", g.klass),
+            ("index set T", collapse_mod.index_set_ascii(g)),
+        ]
+        residues = t.residues(g)
+        for pp in t.prime_powers:
+            pairs.append(
+                (f"residues mod {pp}", ", ".join(str(r) for r in residues[pp]))
+            )
+        blocks.append({"kind": "kv", "pairs": [(f"group {i}", "")] + pairs})
+        blocks.append(
+            {
+                "kind": "poly",
+                "label": f"group {i}: S(q) factored",
+                "text": collapse_mod.s_factored_ascii(g.dossier),
+            }
+        )
+        if g.splits:
+            blocks.append(
+                {
+                    "kind": "table",
+                    "columns": [
+                        f"group {i} split",
+                        "discrepancy class",
+                        "[d+]_q [d-]_q / S",
+                        "realized by",
+                    ],
+                    "rows": [
+                        [
+                            f"{t.d} = {s.d_plus} * {s.d_minus}",
+                            s.klass,
+                            s.discrepancy,
+                            ", ".join(str(a) for a in s.realized_by) or "-",
+                        ]
+                        for s in g.splits
+                    ],
+                }
+            )
+    if t.noncyclotomic_numerators:
+        blocks.append(
+            {
+                "kind": "kv",
+                "pairs": [
+                    (
+                        "non-cyclotomic numerators",
+                        ", ".join(str(a) for a in t.noncyclotomic_numerators),
+                    )
+                ],
+            }
+        )
+    blocks.append(
+        {
+            "kind": "kv",
+            "pairs": [
+                ("c(d)  (squarefree cyclotomic S)", str(t.c)),
+                ("repeated cyclotomic", str(t.repeated_count)),
+                ("non-cyclotomic", str(len(t.noncyclotomic_numerators))),
+            ],
+        }
+    )
+    blocks.append(
+        {
+            "kind": "note",
+            "text": (
+                "Numerators are grouped by identical S; a [RATIO] flag marks "
+                "a numerator realizing a split whose discrepancy is a proper "
+                "ratio. Residues are listed per prime-power part of d in "
+                "ascending prime order, aligned with the numerators. c(d) "
+                "counts the numerators whose S is squarefree cyclotomic "
+                "(class FULL or COLLAPSE)."
+            ),
+        }
+    )
+    return {
+        "kind": "collapse",
+        "title": f"reverse table at modulus {t.d}",
         "blocks": blocks,
         "data": data,
     }
@@ -1813,6 +1941,13 @@ def _prompt_bricks(qst: Any) -> dict[str, Any] | None:
     }
 
 
+def _prompt_collapse(qst: Any) -> dict[str, Any] | None:
+    d = _ask_int(qst, "modulus d", "60", low=2)
+    if d is None:
+        return None
+    return {"d": d}
+
+
 def _prompt_satlas(qst: Any) -> dict[str, Any] | None:
     d_max = _ask_int(qst, "max denominator d", "12", low=2)
     if d_max is None:
@@ -2052,6 +2187,15 @@ CAPABILITIES: list[Capability] = [
         "evaluation at a rational point or root of unity",
         _prompt_bricks,
         compute_bricks,
+    ),
+    Capability(
+        "collapse",
+        "Reverse table at one modulus d",
+        "numerators coprime to d grouped by identical S: index set T, factored "
+        "S, residues per prime-power part, realized splits with discrepancy "
+        "class, and the c(d) count",
+        _prompt_collapse,
+        compute_collapse,
     ),
     Capability(
         "satlas",
@@ -2922,6 +3066,31 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     add_json(p_bricks)
 
+    p_collapse = sub.add_parser(
+        "collapse",
+        help="reverse table at one modulus: numerators grouped by identical "
+        "S, residues per prime-power part, realized splits, and c(d)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_collapse_help_epilog(),
+    )
+    p_collapse.add_argument(
+        "d", type=int, nargs="?", default=None, help="the modulus d, e.g. 60"
+    )
+    p_collapse.add_argument(
+        "--range",
+        dest="d_range",
+        metavar="D1..D2",
+        default=None,
+        help="emit the c(d) sequence, one line 'd c(d)' per modulus, "
+        "pipeable into qreals oeis (take the second column)",
+    )
+    p_collapse.add_argument(
+        "--tex",
+        action="store_true",
+        help="emit the TeX block of the table (compiles standalone)",
+    )
+    add_json(p_collapse)
+
     p_satlas = sub.add_parser(
         "satlas",
         help="S(q) cyclotomic-factor atlas over a coprime (a, d) grid, "
@@ -3190,6 +3359,25 @@ def _run_headless(args: argparse.Namespace) -> int:
                 print(card_tex(bricks_card(args.n, lcm_subset=subset, at=args.at)))
                 return 0
             result = compute_bricks(args.n, args.lcm, args.at)
+        elif args.command == "collapse":
+            from . import collapse as collapse_mod
+
+            if args.d_range is not None:
+                d1, d2 = collapse_mod.parse_range(args.d_range)
+                print(f"c(d) over d = {d1}..{d2}", file=sys.stderr)
+                if args.json:
+                    rows = [list(collapse_mod.range_row(d)) for d in range(d1, d2 + 1)]
+                    print(json.dumps({"d1": d1, "d2": d2, "rows": rows}, indent=2))
+                else:
+                    for d in range(d1, d2 + 1):
+                        print("%d %d" % collapse_mod.range_row(d), flush=True)
+                return 0
+            if args.d is None:
+                raise ValueError("give a modulus d or --range d1..d2")
+            if args.tex:
+                print(collapse_mod.table_tex(collapse_mod.collapse_table(args.d)))
+                return 0
+            result = compute_collapse(args.d)
         elif args.command == "satlas":
             result = compute_satlas(args.d_max, args.a_max)
         elif args.command == "saturation":

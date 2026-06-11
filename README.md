@@ -82,6 +82,7 @@ subcommand (add `--json` for machine output), and a card in `qreals serve`.
 | Roots of R(q) | Plot the complex roots of R(q) on the unit circle, splitting cyclotomic roots from the core. |
 | Jump gap | The right and left q-versions of p/s and the factored gap between them. |
 | Denominator dossier `qreals denom a/d` | One screen per fraction: S(q) expanded and factored, the cyclotomic index set T, deg S vs d-1, the S(1) = d check, the class (FULL / COLLAPSE / REPEATED / NONCYC), a^2 mod d, and every coprime split d = d+ d- with its discrepancy classified EXACT, POLYNOMIAL, or RATIO. Flags: `--json`, `--tex`. |
+| Reverse table `qreals collapse d` | The dossier mapped over every numerator coprime to d, grouped by identical S: index set T, factored S, residues per prime-power part of d, realized splits with discrepancy class, RATIO numerators flagged, and the c(d) / non-cyclotomic counts. `--range d1..d2` emits the c(d) sequence one line per d, ready to pipe into `qreals oeis`. Flags: `--json`, `--tex`. |
 
 **q-reals**
 
