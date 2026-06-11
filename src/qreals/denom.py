@@ -129,7 +129,7 @@ def parse_fraction(text: str) -> tuple[int, int]:
 
 
 def _cyclotomic_structure(
-    S: sp.Poly, d: int
+    S: sp.Poly, d: int, factor_cofactor: bool = True
 ) -> tuple[dict[int, int], list[tuple[sp.Expr, int]]]:
     """The cyclotomic multiplicities of S and its non-cyclotomic cofactor.
 
@@ -137,6 +137,13 @@ def _cyclotomic_structure(
     (the indices the theory allows for a cyclotomic S); whatever remains is
     fully factored and classified with the factor module's cyclotomic test,
     so a cyclotomic factor at an unexpected index is still found.
+
+    With factor_cofactor False a nonzero remainder is kept as one unfactored
+    cofactor instead of being factored into irreducibles. Factoring a dense
+    remainder of degree in the thousands can take minutes, while the trial
+    division above is near-instant; callers that only need the cyclotomic
+    picture (kept, dropped, repeated, or the non-cyclotomic verdict) opt out
+    of the expensive step at large d.
     """
     mult: dict[int, int] = {}
     rem = S
@@ -151,6 +158,8 @@ def _cyclotomic_structure(
             rem = quo
             mult[e] = mult.get(e, 0) + 1
     cofactor: list[tuple[sp.Expr, int]] = []
+    if rem.degree() > 0 and not factor_cofactor:
+        return mult, [(rem.as_expr(), 1)]
     if rem.degree() > 0:
         _, pairs = sp.factor_list(rem.as_expr(), q)
         for fac, m in pairs:
@@ -239,8 +248,13 @@ def _splits(a: int, d: int, mult: dict[int, int]) -> list[Split]:
     return out
 
 
-def denom_dossier(a: int, d: int) -> DenomDossier:
-    """The denominator dossier of [a/d]_q, exact over Z[q]."""
+def denom_dossier(a: int, d: int, factor_cofactor: bool = True) -> DenomDossier:
+    """The denominator dossier of [a/d]_q, exact over Z[q].
+
+    factor_cofactor False keeps any non-cyclotomic remainder unfactored (see
+    _cyclotomic_structure); the class and the cyclotomic multiplicities are
+    identical either way.
+    """
     frac = Fraction(int(a), int(d))
     if frac <= 0:
         raise ValueError("the fraction a/d must be positive")
@@ -252,7 +266,7 @@ def denom_dossier(a: int, d: int) -> DenomDossier:
         if k:
             N = N.exquo(sp.Poly(q**k, q, domain="ZZ"))
     cf = [int(t) for t in sp.continued_fraction(sp.Rational(a, d))]
-    mult, cofactor = _cyclotomic_structure(S, d)
+    mult, cofactor = _cyclotomic_structure(S, d, factor_cofactor=factor_cofactor)
     klass = _classify(d, mult, cofactor)
     splits = _splits(a, d, mult) if klass == "COLLAPSE" else []
     return DenomDossier(

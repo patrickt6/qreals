@@ -2201,6 +2201,22 @@ def _index_html() -> str:
     return _asset("template.html").replace("__CSS__", css).replace("__JS__", js)
 
 
+def _lattice_html() -> str:
+    """The standalone /lattice page (the brick lattice explorer).
+
+    A self-contained template: its math comes typeset from /lattice/data
+    (server-side TeX through the shared formatter emitters) and renders with
+    the same vendored MathJax, so the page works fully offline.
+    """
+    return _asset("lattice.html")
+
+
+def _lattice_payload(d: Any, a: Any) -> dict[str, Any]:
+    from .lattice import lattice_data
+
+    return lattice_data("" if d is None else str(d), "" if a is None else str(a))
+
+
 # --------------------------------------------------------------------------
 # App construction. FastAPI preferred, Flask fallback.
 # --------------------------------------------------------------------------
@@ -2442,8 +2458,17 @@ def _build_fastapi_app() -> Any:
         data, ctype = found
         return Response(content=data, media_type=ctype)
 
+    async def lattice_page(_request: Request) -> Any:
+        return HTMLResponse(_lattice_html())
+
+    async def lattice_data_endpoint(request: Request) -> Any:
+        qp = request.query_params
+        return JSONResponse(_lattice_payload(qp.get("d"), qp.get("a")))
+
     application.add_route("/vendor/{path:path}", vendor_endpoint, methods=["GET"])
     application.add_route("/", index, methods=["GET"])
+    application.add_route("/lattice", lattice_page, methods=["GET"])
+    application.add_route("/lattice/data", lattice_data_endpoint, methods=["GET"])
     application.add_route("/compute", compute_endpoint, methods=["POST"])
     application.add_route("/preview", preview_endpoint, methods=["POST"])
     application.add_route("/certificate", certificate_endpoint, methods=["POST"])
@@ -2460,6 +2485,16 @@ def _build_flask_app() -> Any:
     @application.get("/")
     def index() -> Any:
         return _index_html()
+
+    @application.get("/lattice")
+    def lattice_page() -> Any:
+        return _lattice_html()
+
+    @application.get("/lattice/data")
+    def lattice_data_endpoint() -> Any:
+        return jsonify(
+            _lattice_payload(request.args.get("d"), request.args.get("a"))
+        )
 
     @application.post("/compute")
     def compute_endpoint() -> Any:

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>brick lattice explorer</title>
+<script>
+window.MathJax = {
+  tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+  chtml: { fontURL: "/vendor/mathjax/es5/output/chtml/fonts/woff-v2" },
+  options: { skipHtmlTags: ["script","noscript","style","textarea","pre","code"] }
+};
+</script>
+<!-- MathJax is vendored under web/vendor/ and served locally, so the page,
+     including all math and fonts, renders with no network access. -->
+<script id="MathJax-script" async src="/vendor/mathjax/es5/tex-chtml.js"></script>
+<style>
+:root {
+  --ink: #1b2330; --muted: #5b6678; --line: #d8dee8; --bg: #f7f8fa;
+  --card: #ffffff; --accent: #2456a6; --faded: #aab3c2; --badge: #b3541e;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Helvetica, Arial, sans-serif;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 18px; }
+h1 { font-size: 21px; margin: 0 0 4px; }
+.caption { color: var(--muted); margin: 0 0 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: end;
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 14px;
+}
+.controls label { display: block; font-size: 12px; color: var(--muted); }
+.controls input[type=text] {
+  width: 110px; padding: 6px 8px; border: 1px solid var(--line);
+  border-radius: 6px; font: inherit;
+}
+.controls input[type=range] { width: 260px; }
+.ctl { display: flex; flex-direction: column; gap: 3px; }
+.status { color: #8a2d2d; min-height: 1.2em; font-size: 13px; margin: 0 0 10px; }
+.banner, .notice {
+  border: 1px solid #d8c27a; background: #fdf6dd; border-radius: 8px;
+  padding: 10px 12px; margin: 0 0 12px;
+}
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+.board, .panel {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px;
+}
+#lattice { position: relative; min-height: 420px; }
+#edgeSvg { position: absolute; inset: 0; width: 100%; height: 100%; }
+#edgeSvg line { stroke: var(--line); stroke-width: 1.5; }
+.node {
+  position: absolute; transform: translate(-50%, -50%);
+  border: 2px solid var(--accent); border-radius: 8px; background: #eef3fb;
+  padding: 4px 10px; min-width: 52px; text-align: center;
+}
+.node .e-label { display: block; font-size: 11px; color: var(--muted); }
+.node.dropped { border-color: var(--faded); background: #f3f4f7; opacity: 0.45; }
+.node.none { border-color: var(--faded); background: #f3f4f7; }
+.node.repeated { border-color: var(--badge); }
+.node .mult-badge {
+  position: absolute; top: -10px; right: -10px; background: var(--badge);
+  color: #fff; border-radius: 999px; font-size: 11px; padding: 1px 7px;
+}
+table.divtable { border-collapse: collapse; width: 100%; }
+table.divtable th, table.divtable td {
+  border: 1px solid var(--line); padding: 5px 9px; text-align: left;
+}
+.panel h2 { font-size: 15px; margin: 0 0 8px; }
+.panel .row { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.panel .row:last-child { border-bottom: none; }
+.panel .rlabel { font-size: 11px; color: var(--muted); display: block; }
+.panel .rmathline { overflow-x: auto; }
+.rtext-wrap { margin-top: 12px; }
+.rtext-head { display: flex; justify-content: space-between; align-items: center; }
+.rtext-head .rlabel { font-size: 11px; color: var(--muted); }
+pre.rtext {
+  background: #f3f4f7; border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px; overflow-x: auto; font-size: 12px;
+}
+button.mini {
+  font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--card); cursor: pointer;
+}
+.noscript-note {
+  border: 1px solid #d8c27a; background: #fdf6dd; border-radius: 8px;
+  padding: 10px 12px; margin: 0 0 12px;
+}
+.legend { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+a.backlink { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<noscript>
+  <div class="noscript-note">
+    <p><b>JavaScript is off, so the lattice cannot be drawn in this page.</b>
+    The same dossier is available as plain text from the command line: run
+    <code>qreals denom a/d</code> in a terminal.</p>
+  </div>
+</noscript>
+
+<h1>Brick lattice explorer</h1>
+<p class="caption">The divisor lattice of d, each node the cyclotomic brick
+\(\Phi_e\) for a divisor \(e \ge 2\), marked kept, dropped, or repeated in the
+denominator \(S(q)\) of \(\left[\tfrac{a}{d}\right]_q\). Default example:
+d = 60. <a class="backlink" href="/">calculator home</a></p>
+
+<div class="controls">
+  <div class="ctl">
+    <label for="dInput">denominator d</label>
+    <input type="text" id="dInput" inputmode="numeric" autocomplete="off">
+  </div>
+  <div class="ctl">
+    <label for="aSlider">numerator a (coprime residues)</label>
+    <input type="range" id="aSlider" min="0" max="0" step="1"
+           aria-label="numerator a over the residues coprime to d">
+  </div>
+  <div class="ctl">
+    <label for="aInput">a (direct entry)</label>
+    <input type="text" id="aInput" inputmode="numeric" autocomplete="off">
+  </div>
+  <div class="ctl">
+    <button class="mini" id="goBtn" type="button">Update</button>
+  </div>
+</div>
+<p class="status" id="status" role="status"></p>
+<div class="banner" id="banner" hidden></div>
+<div class="notice" id="notice" hidden></div>
+
+<div class="layout">
+  <div class="board">
+    <div id="lattice"></div>
+    <div id="divTableWrap" hidden></div>
+    <p class="legend">solid = kept in S(q), faded = dropped, badge =
+    multiplicity of a repeated factor. Left and right arrow keys step a
+    through the coprime residues.</p>
+  </div>
+  <aside class="panel">
+    <h2>Denominator dossier</h2>
+    <div id="panelRows"></div>
+    <div class="rtext-wrap" id="textWrap" hidden>
+      <div class="rtext-head">
+        <span class="rlabel">Plain text</span>
+        <button class="mini copy-btn" id="copyBtn" type="button">Copy as text</button>
+      </div>
+      <pre class="rtext" id="panelText"></pre>
+    </div>
+  </aside>
+</div>
+
+</div>
+<script>
+"use strict";
+const DEFAULT_D = 60, DEFAULT_A = 19;
+const $ = (id) => document.getElementById(id);
+let state = { d: DEFAULT_D, a: DEFAULT_A, residues: [] };
+let inflight = null;
+
+function readUrl() {
+  const p = new URLSearchParams(location.search);
+  const d = parseInt(p.get("d"), 10), a = parseInt(p.get("a"), 10);
+  if (Number.isFinite(d)) state.d = d;
+  if (Number.isFinite(a)) state.a = a;
+}
+
+function writeUrl() {
+  const p = new URLSearchParams();
+  p.set("d", String(state.d));
+  if (state.a != null) p.set("a", String(state.a));
+  history.replaceState(null, "", "?" + p.toString());
+}
+
+async function load(d, a) {
+  $("status").textContent = "";
+  const url = "/lattice/data?d=" + encodeURIComponent(d) +
+              "&a=" + encodeURIComponent(a == null ? "" : a);
+  const token = {};
+  inflight = token;
+  let data;
+  try {
+    data = await (await fetch(url)).json();
+  } catch (err) {
+    $("status").textContent = "the server did not answer: " + err;
+    return;
+  }
+  if (inflight !== token) return; // a newer request superseded this one
+  if (data.error) { $("status").textContent = data.error; return; }
+  state.d = data.d;
+  state.a = data.mode === "lattice" ? data.a : null;
+  state.residues = data.residues || [];
+  render(data);
+  writeUrl();
+}
+
+function syncControls() {
+  $("dInput").value = String(state.d);
+  $("aInput").value = state.a == null ? "" : String(state.a);
+  const slider = $("aSlider");
+  const n = state.residues.length;
+  slider.max = String(Math.max(n - 1, 0));
+  slider.disabled = n === 0;
+  const idx = state.residues.indexOf(state.a);
+  slider.value = String(idx >= 0 ? idx : 0);
+}
+
+function render(data) {
+  syncControls();
+  const banner = $("banner"), notice = $("notice");
+  banner.hidden = !data.banner;
+  banner.textContent = data.banner || "";
+  notice.hidden = !data.notice;
+  notice.textContent = data.notice || "";
+
+  const board = $("lattice"), tableWrap = $("divTableWrap");
+  if (data.mode === "table") {
+    board.hidden = true;
+    tableWrap.hidden = false;
+    renderTable(data, tableWrap);
+  } else {
+    board.hidden = false;
+    tableWrap.hidden = true;
+    renderLattice(data, board);
+  }
+  renderPanel(data.panel);
+  if (window.MathJax && MathJax.typesetPromise) {
+    MathJax.typesetPromise([board, tableWrap, $("panelRows")]).catch(() => {});
+  }
+}
+
+function renderLattice(data, board) {
+  const H = Math.max(420, 90 * (new Set(data.nodes.map(n => n.y)).size));
+  board.style.height = H + "px";
+  board.innerHTML = "";
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.id = "edgeSvg";
+  svg.setAttribute("viewBox", "0 0 100 100");
+  svg.setAttribute("preserveAspectRatio", "none");
+  const pos = {};
+  for (const n of data.nodes) pos[n.e] = n;
+  for (const [e1, e2] of data.edges) {
+    const a = pos[e1], b = pos[e2];
+    if (!a || !b) continue;
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", a.x * 100); line.setAttribute("y1", a.y * 100);
+    line.setAttribute("x2", b.x * 100); line.setAttribute("y2", b.y * 100);
+    svg.appendChild(line);
+  }
+  board.appendChild(svg);
+  for (const n of data.nodes) {
+    const div = document.createElement("div");
+    div.className = "node " + n.state;
+    div.dataset.e = String(n.e);
+    div.dataset.state = n.state;
+    div.style.left = (n.x * 100) + "%";
+    div.style.top = (n.y * 100) + "%";
+    div.innerHTML = "\\(" + n.tex + "\\)" +
+      '<span class="e-label">e = ' + n.e + "</span>" +
+      (n.state === "repeated"
+        ? '<span class="mult-badge">x' + n.mult + "</span>" : "");
+    board.appendChild(div);
+  }
+}
+
+function renderTable(data, wrap) {
+  let html = "<table class='divtable'><thead><tr>" +
+    "<th>divisor e</th><th>brick</th></tr></thead><tbody>";
+  for (const n of data.nodes) {
+    html += "<tr data-e='" + n.e + "'><td>" + n.e + "</td><td>\\(" +
+            n.tex + "\\)</td></tr>";
+  }
+  wrap.innerHTML = html + "</tbody></table>";
+}
+
+function renderPanel(panel) {
+  const rowsEl = $("panelRows"), textWrap = $("textWrap");
+  if (!panel) {
+    rowsEl.innerHTML = "<p class='legend'>The dossier panel needs the " +
+      "lattice range of d.</p>";
+    textWrap.hidden = true;
+    return;
+  }
+  let html = "";
+  for (const r of panel.rows) {
+    html += "<div class='row'><span class='rlabel'>" + r.label +
+      "</span><div class='rmathline'>\\(" + r.tex + "\\)</div></div>";
+  }
+  for (const s of panel.splits) {
+    html += "<div class='row'><span class='rlabel'>split " + s.label +
+      "</span><div class='rmathline'>\\(" + s.tex + "\\)</div></div>";
+  }
+  rowsEl.innerHTML = html;
+  textWrap.hidden = false;
+  $("panelText").textContent = panel.text;
+}
+
+function stepSlider(delta) {
+  const n = state.residues.length;
+  if (!n) return;
+  let idx = state.residues.indexOf(state.a);
+  if (idx < 0) idx = 0;
+  idx = Math.min(Math.max(idx + delta, 0), n - 1);
+  const a = state.residues[idx];
+  if (a !== state.a) load(state.d, a);
+}
+
+$("aSlider").addEventListener("input", () => {
+  const idx = parseInt($("aSlider").value, 10);
+  const a = state.residues[idx];
+  if (a != null && a !== state.a) load(state.d, a);
+});
+$("goBtn").addEventListener("click", () => {
+  const d = $("dInput").value.trim();
+  // a typed a always wins; a fresh d with an untouched a field gets the
+  // server's default residue instead of the stale value
+  const typed = $("aInput").value.trim();
+  const stale = d !== String(state.d) && typed === String(state.a);
+  const a = typed && !stale ? typed : null;
+  load(d, a);
+});
+for (const id of ["dInput", "aInput"]) {
+  $(id).addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") $("goBtn").click();
+  });
+}
+document.addEventListener("keydown", (ev) => {
+  const t = ev.target;
+  if (t && (t.id === "dInput" || t.id === "aInput")) return;
+  if (t && t.id === "aSlider") return; // the native slider already steps
+  if (ev.key === "ArrowLeft") { stepSlider(-1); ev.preventDefault(); }
+  if (ev.key === "ArrowRight") { stepSlider(1); ev.preventDefault(); }
+});
+$("copyBtn").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("panelText").textContent); }
+  catch (err) { /* clipboard may be unavailable; the text stays selectable */ }
+});
+
+readUrl();
+load(state.d, state.a);
+</script>
+</body>
+</html>
