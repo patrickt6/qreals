@@ -7,14 +7,14 @@ The q-integer uniqueness property: given
 the multiset {a_1, ..., a_r} is determined by P(q). The proof is short and
 constructive. Each q-integer factors over Z[q] as
 
-    [n]_q = prod_{d | n, d > 1} Phi_d(q),
+    [n]_q = prod_{d | n, d > 1} Phi(d),
 
-where Phi_d is the d-th cyclotomic polynomial; the Phi_d are irreducible and
+where Phi(d) is the d-th cyclotomic polynomial; the Phi(d) are irreducible and
 distinct, and Z[q] is a UFD, so the exponent vector
 
-    e_d = the exponent of Phi_d in the factorisation of P(q)        (d >= 2)
+    e_d = the exponent of Phi(d) in the factorisation of P(q)        (d >= 2)
 
-is uniquely determined by P(q). Phi_d divides [n]_q iff d | n, so
+is uniquely determined by P(q). Phi(d) divides [n]_q iff d | n, so
 
     e_d = sum_i [d | a_i] = sum_{n: d | n} m_n,
 
@@ -38,8 +38,8 @@ The factorial identity
     [n]_q! = [n]_q [n-1]_q ... [2]_q
 
 has, in the recovered multiset, exactly one copy of each integer 2, 3, ..., n.
-Equivalently, the cyclotomic exponent of Phi_d in [n]_q! is floor(n / d) for
-d >= 2 (since Phi_d divides [m]_q for exactly the multiples of d in 2..n),
+Equivalently, the cyclotomic exponent of Phi(d) in [n]_q! is floor(n / d) for
+d >= 2 (since Phi(d) divides [m]_q for exactly the multiples of d in 2..n),
 which the test suite cross-checks.
 """
 
@@ -98,10 +98,10 @@ def _coerce_poly(P) -> sp.Poly:
 
 
 def _cyclotomic_exponents(P: sp.Poly) -> tuple[dict[int, int], sp.Expr]:
-    """Strip cyclotomic factors Phi_d (d >= 2) from P by trial division.
+    """Strip cyclotomic factors Phi(d) (d >= 2) from P by trial division.
 
     Returns (exponents, leftover). exponents maps d -> e_d for d such that
-    Phi_d divides P^k for some k >= 1. leftover is the unit content that did
+    Phi(d) divides P^k for some k >= 1. leftover is the unit content that did
     not match any cyclotomic factor; for a clean q-integer product the
     leftover is +-1.
     """
@@ -113,14 +113,14 @@ def _cyclotomic_exponents(P: sp.Poly) -> tuple[dict[int, int], sp.Expr]:
     deg = poly.degree()
     exponents: dict[int, int] = {}
 
-    # Largest d we ever need: Phi_d has degree phi(d) >= 1, so d <= deg(P) + 1
+    # Largest d we ever need: Phi(d) has degree phi(d) >= 1, so d <= deg(P) + 1
     # is more than enough (degree of [n]_q is n - 1, so n - 1 <= deg <= n - 1
     # for the largest factor; using deg + 2 gives a safety margin).
     d_max = deg + 2
 
     for d in range(2, d_max + 1):
         phi_d = sp.Poly(cyclotomic_poly(d, q), q)
-        # Trial-divide by Phi_d while the division is exact.
+        # Trial-divide by Phi(d) while the division is exact.
         while True:
             quotient, remainder = sp.div(poly, phi_d, q)
             if remainder.is_zero:
@@ -141,7 +141,7 @@ def _mobius_inverse(exponents: dict[int, int]) -> dict[int, int]:
     """Apply upward Mobius inversion on the cyclotomic support.
 
     Each a_i in the multiset is a multiple of every d in its divisor set, and
-    Phi_{a_i} appears with multiplicity one in [a_i]_q, so the support
+    Phi(a_i) appears with multiplicity one in [a_i]_q, so the support
     {d: e_d > 0} contains every a_i itself. Candidate n therefore range over
     the support. The inversion of e_d = sum_{n: d | n} m_n on the
     divisibility poset is the dual ("upward") pair:

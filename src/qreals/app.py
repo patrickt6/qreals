@@ -57,7 +57,7 @@ from . import (
     shift_down,
     shift_up,
 )
-from . import exports, features
+from . import exports, features, formatter
 from ._parsing import parse_real
 from .store import SavedEntry, SavedStore
 
@@ -335,7 +335,7 @@ def _factor_product_str(
 ) -> str:
     """Pretty-print a factorisation as q^k times content times labelled factors.
 
-    Cyclotomic factors print as Phi_d(q); the rest print as their sympy form.
+    Cyclotomic factors print as Phi(d); the rest print as their sympy form.
     """
     from .factor import _cyclotomic_index
 
@@ -346,7 +346,9 @@ def _factor_product_str(
         parts.append(sp.sstr(content))
     for fac, mult in factors:
         d = _cyclotomic_index(fac)
-        label = f"Phi_{d}(q)" if d is not None else f"({sp.sstr(fac)})"
+        label = (
+            formatter.phi_applied_label(d) if d is not None else f"({sp.sstr(fac)})"
+        )
         parts.append(label if mult == 1 else f"{label}^{mult}")
     return " * ".join(parts) if parts else "1"
 
@@ -354,7 +356,7 @@ def _factor_product_str(
 def compute_factor(a: int, b: int) -> Result:
     """Factor the numerator R(q) and denominator S(q) of [a/b]_q over Z[q].
 
-    Each irreducible factor is classified as a cyclotomic polynomial Phi_d(q)
+    Each irreducible factor is classified as a cyclotomic polynomial Phi(d)
     or a non-cyclotomic core factor, answering the open questions
     on when R(q) is irreducible (often when a is prime) and how the cyclotomic
     factorisation of [m/1]_q generalises to a fraction.
@@ -363,7 +365,7 @@ def compute_factor(a: int, b: int) -> Result:
     r_str = _factor_product_str(result.content_R, result.factors_R, result.k)
     s_str = _factor_product_str(result.content_S, result.factors_S)
     cyclo_r = ", ".join(
-        f"Phi_{d}^{e}" for d, e in sorted(result.cyclotomic_R.items())
+        formatter.phi_label(d, e) for d, e in sorted(result.cyclotomic_R.items())
     )
     core_r = ", ".join(f"({sp.sstr(f)})^{m}" for f, m in result.core_R)
     return {
@@ -394,7 +396,7 @@ def compute_factor(a: int, b: int) -> Result:
             {
                 "kind": "note",
                 "text": (
-                    "[m/1]_q = [m]_q factors as the product of Phi_d(q) over d | m, "
+                    "[m/1]_q = [m]_q factors as the product of Phi(d) over d | m, "
                     "d > 1; for a general fraction the numerator can carry a "
                     "non-cyclotomic core, which is what makes R irreducible when a "
                     "is prime"
@@ -424,7 +426,7 @@ def compute_sprops(a: int, b: int) -> Result:
 
     The factor tool surfaces the numerator R(q) but says little about the
     denominator S(q); this analyzes S directly. S is the q-denominator;
-    when it is a squarefree product of cyclotomics S = prod_{k in T} Phi_k it
+    when it is a squarefree product of cyclotomics S = prod_{k in T} Phi(k) it
     divides [n]_q iff the saturation index e* = lcm(T) divides n, so e* is the
     minimal n that makes the difference of equal-tail q-rationals finite. The
     degree obeys deg S <= d-1 with equality iff S = [d]_q iff a == +/-1 (mod d);
@@ -492,7 +494,7 @@ def compute_sprops(a: int, b: int) -> Result:
                     "cyclotomics and lcm of its indices divides n; then the difference "
                     "of two equal-tail q-rationals over S is a finite Laurent "
                     "polynomial at every multiple of e*. A non-squarefree S (e.g. 3/8 "
-                    "gives Phi_2^2 Phi_4) or a non-cyclotomic S (e.g. 2/15) divides no "
+                    "gives Phi(2)^2 Phi(4)) or a non-cyclotomic S (e.g. 2/15) divides no "
                     "[n]_q, so that difference is never finite. deg S = d-1 picks out "
                     "exactly S = [d]_q, the a == +/-1 (mod d) tails."
                 ),
@@ -523,6 +525,98 @@ def compute_sprops(a: int, b: int) -> Result:
     }
 
 
+def compute_denom(a: int, b: int) -> Result:
+    """The one-shot denominator dossier of [a/d]_q.
+
+    Everything the denominator question asks of a single fraction, in one
+    screen: the lowest-terms echo and continued fraction, S(q) expanded and
+    factored, the cyclotomic index set T or the non-cyclotomic verdict, deg S
+    against d-1, the S(1) = d check, the class (FULL, COLLAPSE, REPEATED, or
+    NONCYC), the residue a^2 mod d, and for a collapse every coprime split
+    d = d_+ d_- with its discrepancy classified EXACT, POLYNOMIAL, or RATIO.
+    """
+    from . import denom as denom_mod
+    from . import formatter
+
+    p = denom_mod.denom_dossier(a, b)
+    data = denom_mod.dossier_data(p)
+
+    t_str = (
+        "{" + ", ".join(str(k) for k in p.index_set) + "}"
+        if p.is_cyclotomic_product
+        else "not a cyclotomic product"
+    )
+    blocks: list[dict[str, Any]] = [
+        {
+            "kind": "kv",
+            "pairs": [
+                ("fraction in lowest terms", f"{p.a}/{p.d}"),
+                ("continued fraction", denom_mod.cf_str(p.cf)),
+            ],
+        },
+        {
+            "kind": "poly",
+            "label": "S(q)",
+            "text": formatter.poly_ascii(p.S.as_expr()),
+        },
+        {
+            "kind": "poly",
+            "label": "S(q) factored",
+            "text": denom_mod.s_factored_ascii(p),
+        },
+        {
+            "kind": "kv",
+            "pairs": [
+                ("index set T", t_str),
+                ("deg S", f"{p.deg_S}  (bound d-1 = {p.d - 1})"),
+                (
+                    "S(1) = d",
+                    f"S(1) = {p.S_at_1}  ({'ok' if p.S_at_1 == p.d else 'FAIL'})",
+                ),
+                ("class", p.klass),
+                (
+                    "a^2 mod d",
+                    formatter.congruence_ascii("a^2", str((p.a * p.a) % p.d), p.d),
+                ),
+            ],
+        },
+    ]
+    if p.splits:
+        blocks.append(
+            {
+                "kind": "table",
+                "columns": ["split", "discrepancy class", "[d+]_q [d-]_q / S", "realized by a"],
+                "rows": [
+                    [
+                        f"{p.d} = {s.d_plus} * {s.d_minus}",
+                        s.klass,
+                        denom_mod.split_discrepancy_ascii(s),
+                        "yes" if s.realized else "no",
+                    ]
+                    for s in p.splits
+                ],
+            }
+        )
+    blocks.append(
+        {
+            "kind": "note",
+            "text": (
+                "FULL means S is the whole q-integer of d (the a == +/-1 mod d "
+                "tails); COLLAPSE a proper squarefree cyclotomic subproduct; "
+                "REPEATED a cyclotomic product with a repeated factor; NONCYC a "
+                "non-cyclotomic factor. A collapse lists every coprime split of "
+                "d with its exact discrepancy."
+            ),
+        }
+    )
+    return {
+        "kind": "denom",
+        "title": f"denominator dossier of [{p.a}/{p.d}]_q",
+        "blocks": blocks,
+        "data": data,
+    }
+
+
 def _t_set_str(indices: list[int]) -> str:
     """Render a cyclotomic index set T as {k, ...} or 'empty'."""
     return "{" + ", ".join(str(k) for k in indices) + "}" if indices else "empty"
@@ -538,7 +632,7 @@ def compute_satlas(d_max: int, a_max: int | None = None) -> Result:
     the regime of the q-denominator S(q): the full [d]_q, a proper cyclotomic
     collapse, or the impossibility branch (non-squarefree like 3/8, or
     non-cyclotomic like 2/15). A regime tally and a count of how often each
-    Phi_k appears make Remark 2 (S is a subset product of the cyclotomic factors
+    Phi(k) appears make Remark 2 (S is a subset product of the cyclotomic factors
     of [d]_q) visible as d grows.
     """
     from .factor import REGIME_LABELS, REGIME_ORDER, s_atlas
@@ -550,7 +644,7 @@ def compute_satlas(d_max: int, a_max: int | None = None) -> Result:
         [REGIME_LABELS[r], str(atlas["regime_counts"][r])] for r in REGIME_ORDER
     ]
     index_rows = [
-        [f"Phi_{k}", str(n)] for k, n in atlas["index_appearances"].items()
+        [formatter.phi_label(k), str(n)] for k, n in atlas["index_appearances"].items()
     ]
     cell_rows = [
         [
@@ -680,7 +774,7 @@ def compute_degcollapse(d_max: int, a_max: int | None = None) -> Result:
 
     The diagonal deg S = d-1 is the saturating a == +/-1 locus (S = [d]_q); the
     drop below it is the collapse depth d-1-deg S, which for a squarefree S is
-    the totient weight of the dropped Phi_k (the degree note's law). The depth_ok
+    the totient weight of the dropped Phi(k) (the degree note's law). The depth_ok
     column cross-checks that equality on each squarefree cell.
     """
     from .factor import REGIME_LABELS, degree_collapse
@@ -738,7 +832,7 @@ def compute_degcollapse(d_max: int, a_max: int | None = None) -> Result:
                 "deg S <= d-1 always, with equality iff S = [d]_q iff a == +/-1 "
                 "(mod d). Below the diagonal the drop d-1-deg S equals the totient "
                 "weight of the dropped cyclotomic factors for a squarefree S (the "
-                "5/12 drop of Phi_6 Phi_12 is 2+4 = 6, the 4/15 drop of Phi_15 is 8)."
+                "5/12 drop of Phi(6) Phi(12) is 2+4 = 6, the 4/15 drop of Phi(15) is 8)."
             ),
         }
     )
@@ -1582,6 +1676,18 @@ def _prompt_sprops(qst: Any) -> dict[str, Any] | None:
     return {"a": a, "b": b}
 
 
+def _prompt_denom(qst: Any) -> dict[str, Any] | None:
+    answer = qst.text(
+        "rational a/d  (for example 19/60)",
+        default="19/60",
+        validate=_validate_rational,
+    ).ask()
+    if answer is None:
+        return None
+    a, b = _parse_rational(answer.strip())
+    return {"a": a, "b": b}
+
+
 def _prompt_satlas(qst: Any) -> dict[str, Any] | None:
     d_max = _ask_int(qst, "max denominator d", "12", low=2)
     if d_max is None:
@@ -1793,7 +1899,7 @@ CAPABILITIES: list[Capability] = [
     Capability(
         "factor",
         "Factor R(q), S(q) of [a/b]_q",
-        "factor the numerator and denominator over Z[q], labelling Phi_d factors",
+        "factor the numerator and denominator over Z[q], labelling Phi(d) factors",
         _prompt_factor,
         compute_factor,
     ),
@@ -1806,10 +1912,18 @@ CAPABILITIES: list[Capability] = [
         compute_sprops,
     ),
     Capability(
+        "denom",
+        "Denominator dossier of [a/d]_q",
+        "one-shot dossier: S expanded and factored, index set T, class "
+        "(FULL/COLLAPSE/REPEATED/NONCYC), and every coprime-split discrepancy",
+        _prompt_denom,
+        compute_denom,
+    ),
+    Capability(
         "satlas",
         "S(q) cyclotomic-factor atlas (a/d grid)",
         "regime of S(q) (full [d]_q / collapse / non-squarefree / non-cyclotomic) "
-        "over a coprime (a, d) grid, with the Phi_k appearance tally",
+        "over a coprime (a, d) grid, with the Phi(k) appearance tally",
         _prompt_satlas,
         compute_satlas,
     ),
@@ -1825,7 +1939,7 @@ CAPABILITIES: list[Capability] = [
         "degcollapse",
         "deg S vs d-1 collapse map",
         "deg S against the bound d-1 over the grid, with the collapse depth "
-        "d-1-deg S = totient weight of the dropped Phi_k",
+        "d-1-deg S = totient weight of the dropped Phi(k)",
         _prompt_degcollapse,
         compute_degcollapse,
     ),
@@ -2520,6 +2634,21 @@ def run_doctor(console: Any | None = None) -> int:
 # --------------------------------------------------------------------------
 
 
+# The worked example shown by `qreals denom --help`. Built from the live
+# computation so the help text can never drift from the tool; the test suite
+# runs the command and asserts the output matches this block byte for byte.
+def _denom_help_epilog() -> str:
+    import textwrap
+
+    payload = json.dumps(compute_denom(4, 15)["data"], indent=2)
+    return (
+        "worked example:\n\n"
+        "  $ qreals denom 4/15 --json\n"
+        + textwrap.indent(payload, "  ")
+        + "\n"
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="qreals",
@@ -2585,7 +2714,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_factor = sub.add_parser(
         "factor",
-        help="factor R(q), S(q) of [a/b]_q over Z[q], labelling Phi_d factors",
+        help="factor R(q), S(q) of [a/b]_q over Z[q], labelling Phi(d) factors",
     )
     p_factor.add_argument("fraction", help="the rational a/b, e.g. 7/5")
     add_json(p_factor)
@@ -2598,10 +2727,28 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sprops.add_argument("fraction", help="the rational a/d, e.g. 5/12")
     add_json(p_sprops)
 
+    p_denom = sub.add_parser(
+        "denom",
+        help="one-shot denominator dossier of [a/d]_q",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_denom_help_epilog(),
+    )
+    p_denom.add_argument(
+        "fraction",
+        nargs="+",
+        help="the rational a/d, as one token 19/60 or two tokens 19 60",
+    )
+    p_denom.add_argument(
+        "--tex",
+        action="store_true",
+        help="emit the TeX block of the dossier (compiles standalone)",
+    )
+    add_json(p_denom)
+
     p_satlas = sub.add_parser(
         "satlas",
         help="S(q) cyclotomic-factor atlas over a coprime (a, d) grid, "
-        "classified by regime with a Phi_k appearance tally",
+        "classified by regime with a Phi(k) appearance tally",
     )
     p_satlas.add_argument(
         "d_max", type=int, help="max denominator d in the grid, e.g. 12"
@@ -2622,7 +2769,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_degcollapse = sub.add_parser(
         "degcollapse",
         help="deg S vs the bound d-1 over the grid, with the collapse depth "
-        "(d-1-deg S = totient weight of the dropped Phi_k)",
+        "(d-1-deg S = totient weight of the dropped Phi(k))",
     )
     p_degcollapse.add_argument(
         "d_max", type=int, help="max denominator d in the grid, e.g. 12"
@@ -2850,6 +2997,14 @@ def _run_headless(args: argparse.Namespace) -> int:
         elif args.command == "sprops":
             a, b = _parse_rational(args.fraction)
             result = compute_sprops(a, b)
+        elif args.command == "denom":
+            a, b = _parse_rational(" ".join(args.fraction).replace(" ", "/"))
+            if args.tex:
+                from .denom import denom_dossier, dossier_tex
+
+                print(dossier_tex(denom_dossier(a, b)))
+                return 0
+            result = compute_denom(a, b)
         elif args.command == "satlas":
             result = compute_satlas(args.d_max, args.a_max)
         elif args.command == "saturation":

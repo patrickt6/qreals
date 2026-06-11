@@ -6,10 +6,10 @@ observation is that R is often irreducible when a is prime), and how does the
 cyclotomic-style factorisation seen in the q-integer case [m/1]_q = [m]_q
 extend to a general fraction? This module answers both by factoring R and S
 exactly over Z[q] with sympy.factor_list and classifying each irreducible
-factor as a cyclotomic polynomial Phi_d(q) or a non-cyclotomic "core" factor.
+factor as a cyclotomic polynomial Phi(d) or a non-cyclotomic "core" factor.
 
 For an integer m, [m/1]_q = [m]_q = 1 + q + ... + q^{m-1} factors as the
-product of Phi_d(q) over the divisors d | m with d > 1 (the classical
+product of Phi(d) over the divisors d | m with d > 1 (the classical
 identity used by qint_factor). For a general fraction the numerator can carry
 a non-cyclotomic core, and that core is exactly what makes R irreducible when
 a is prime in the cases observed.
@@ -29,6 +29,7 @@ from math import lcm
 
 import sympy as sp
 
+from . import formatter
 from ._parsing import parse_real
 from .rational import q, q_rational
 
@@ -48,7 +49,7 @@ class QRealFactor:
         factors_R: the irreducible factors of R as (factor, multiplicity)
             pairs, each factor a primitive sympy Expr in q.
         cyclotomic_R: the cyclotomic support of R, a dict d -> e_d giving the
-            exponent of Phi_d(q) (d >= 1) among the factors of R.
+            exponent of Phi(d) (d >= 1) among the factors of R.
         core_R: the non-cyclotomic core factors of R as (factor, multiplicity)
             pairs; empty when R is a pure product of cyclotomic polynomials.
         content_S, factors_S, cyclotomic_S, core_S: the same data for the
@@ -105,7 +106,7 @@ def _coerce_fraction(x: Fraction | str | tuple[int, int] | list[int]) -> Fractio
 
 
 def _cyclotomic_index(factor: sp.Expr) -> int | None:
-    """Return d if factor equals Phi_d(q) for some d >= 1, else None.
+    """Return d if factor equals Phi(d) for some d >= 1, else None.
 
     A monic irreducible factor of a polynomial over Z[q] is cyclotomic exactly
     when it equals cyclotomic_poly(d, q); its degree is the Euler totient
@@ -138,7 +139,7 @@ def _factor_poly(
 
     Returns (content, factors, cyclotomic, core) where content is the integer
     content, factors is the list of (irreducible factor, multiplicity) pairs,
-    cyclotomic maps d -> e_d over the factors that equal Phi_d(q), and core is
+    cyclotomic maps d -> e_d over the factors that equal Phi(d), and core is
     the list of (factor, multiplicity) pairs that are not cyclotomic.
     """
     content, factor_pairs = sp.factor_list(sp.expand(expr), q)
@@ -179,7 +180,7 @@ def factor_qreal(x: Fraction | str | tuple[int, int] | list[int]) -> QRealFactor
     (a, b) pair. The value [a/b]_q is taken from q_rational (the exact MGO
     continued-fraction value); its numerator R(q) and denominator S(q) are
     each factored with sympy.factor_list and every irreducible factor is
-    classified as a cyclotomic polynomial Phi_d(q) or a non-cyclotomic core
+    classified as a cyclotomic polynomial Phi(d) or a non-cyclotomic core
     factor. The numerator is normalised so R has R(0) = 1, matching
     [a/b]_q = q^k R(q)/S(q), with the split-off power k recorded.
 
@@ -248,22 +249,22 @@ class SProperties:
     S(q) is the central object of the denominator question: for a rational
     x = a/d in lowest terms, [a/d]_q = q^k R(q)/S(q) with S monic, S(0) = 1.
     The theory (prime_power_saturation, degree_bound_proof) says: when S is a
-    squarefree product of cyclotomics S = prod_{k in T} Phi_k, it divides [n]_q
+    squarefree product of cyclotomics S = prod_{k in T} Phi(k), it divides [n]_q
     iff e_star = lcm(T) divides n; deg S <= d-1 with equality iff S = [d]_q iff
     a == +/-1 (mod d); S(1) = d always; S(0) = 1 always. Some S are a proper
     "collapse" (a strict cyclotomic subproduct of [d]_q, finite difference,
     minimal saturating n = e_star), and some are the impossibility branch:
-    non-squarefree (e.g. 3/8 gives Phi_2^2 Phi_4) or non-cyclotomic (e.g. 2/15),
+    non-squarefree (e.g. 3/8 gives Phi(2)^2 Phi(4)) or non-cyclotomic (e.g. 2/15),
     which divide no [n]_q at all, so the difference of equal-tail q-rationals is
     never finite.
 
     Fields:
         a, d: the input fraction a/d in lowest terms (d > 0).
-        S_str: the factored S(q), cyclotomic factors printed as Phi_k(q).
-        index_set_T: the sorted list of cyclotomic indices k with Phi_k | S
+        S_str: the factored S(q), cyclotomic factors printed as Phi(k).
+        index_set_T: the sorted list of cyclotomic indices k with Phi(k) | S
             (only meaningful in the squarefree-cyclotomic regime; the indices of
             the cyclotomic part otherwise).
-        multiplicities: k -> e_k, the exponent of Phi_k in S (all 1 when
+        multiplicities: k -> e_k, the exponent of Phi(k) in S (all 1 when
             squarefree).
         is_cyclotomic: True when S is a pure product of cyclotomics (no core).
         is_squarefree: True when S is squarefree (every factor multiplicity 1).
@@ -338,7 +339,7 @@ def s_properties(x: Fraction | str | tuple[int, int] | list[int]) -> SProperties
     index_set_T = sorted(multiplicities.keys())
     # Saturation only makes sense when S is a squarefree product of cyclotomics;
     # then S | [n]_q iff every k in T divides n iff lcm(T) | n, so the minimal
-    # saturating n is lcm(T). A non-squarefree S (e.g. Phi_2^2 Phi_4 for 3/8) or
+    # saturating n is lcm(T). A non-squarefree S (e.g. Phi(2)^2 Phi(4) for 3/8) or
     # a non-cyclotomic S (e.g. 2/15) divides no [n]_q, so no n saturates.
     if is_squarefree and index_set_T:
         saturation_index: int | None = lcm(*index_set_T)
@@ -388,13 +389,15 @@ def s_properties(x: Fraction | str | tuple[int, int] | list[int]) -> SProperties
 
 
 def _factor_label(content: sp.Expr, factors: list[tuple[sp.Expr, int]]) -> str:
-    """Pretty-print a factorisation with cyclotomic factors as Phi_k(q)."""
+    """Pretty-print a factorisation with cyclotomic factors as Phi(k)."""
     parts: list[str] = []
     if content != sp.Integer(1):
         parts.append(str(content))
     for fac, mult in factors:
         d = _cyclotomic_index(fac)
-        label = f"Phi_{d}(q)" if d is not None else f"({sp.sstr(fac)})"
+        label = (
+            formatter.phi_applied_label(d) if d is not None else f"({sp.sstr(fac)})"
+        )
         parts.append(label if mult == 1 else f"{label}^{mult}")
     return " * ".join(parts) if parts else "1"
 
@@ -406,7 +409,7 @@ def s_regime(p: SProperties) -> str:
         "full"          S == [d]_q (no collapse), a == +/-1 (mod d);
         "collapse"      a proper squarefree-cyclotomic subproduct of [d]_q;
         "nonsquarefree" cyclotomic but with a repeated factor (e.g. 3/8 gives
-                        Phi_2^2 Phi_4); divides no [n]_q;
+                        Phi(2)^2 Phi(4)); divides no [n]_q;
         "noncyclotomic" carries a non-cyclotomic core (e.g. 2/15); divides no
                         [n]_q.
     The first two are the saturating regimes (a finite saturation index e*);
@@ -453,7 +456,7 @@ def _dropped_indices(p: SProperties) -> list[int]:
 
 
 def _collapse_depth_check(p: SProperties) -> tuple[int, int, bool]:
-    """The collapse depth d-1-deg S and the totient weight of the dropped Phi_k.
+    """The collapse depth d-1-deg S and the totient weight of the dropped Phi(k).
 
     The degree note says the drop below the bound equals the sum of the
     totients of the dropped cyclotomic factors. Returns (drop, totient_sum,
@@ -509,7 +512,7 @@ def s_atlas(d_max: int, a_max: int | None = None) -> dict:
     bounds this records the regime of its q-denominator S(q) (full [d]_q,
     proper collapse, non-squarefree, or non-cyclotomic), its index set T, degree
     and saturation index. A companion tally counts, for each cyclotomic index k,
-    how often Phi_k appears across the grid, making Remark 2 (S is a subset
+    how often Phi(k) appears across the grid, making Remark 2 (S is a subset
     product of the cyclotomic factors of [n]_q) visible as d grows.
 
     Returns {cells, d_max, a_max, regime_counts, index_appearances}.
@@ -569,7 +572,7 @@ def degree_collapse(d_max: int, a_max: int | None = None) -> dict:
     For each proper fraction a/d this gives deg S and the bound d-1; the
     diagonal deg S = d-1 is the saturating a == +/-1 locus (S = [d]_q), and the
     drop below it is the collapse depth d-1-deg S, which for a cyclotomic S
-    equals the totient weight of the dropped Phi_k (the degree note's law). The
+    equals the totient weight of the dropped Phi(k) (the degree note's law). The
     depth_ok flag cross-checks that equality on every cyclotomic cell.
 
     Returns {cells, d_max, a_max, depth_law_holds} where depth_law_holds is
@@ -583,9 +586,9 @@ def degree_collapse(d_max: int, a_max: int | None = None) -> dict:
             drop, totient_sum, depth_ok = _collapse_depth_check(p)
             regime = s_regime(p)
             # The collapse-depth law (drop = sum of totients of the dropped
-            # Phi_k) is a squarefree-regime statement: it covers the full [d]_q
+            # Phi(k)) is a squarefree-regime statement: it covers the full [d]_q
             # and the proper collapses, where S is a subset product of the
-            # cyclotomic factors of [d]_q. A non-squarefree S (e.g. Phi_2^2 Phi_4
+            # cyclotomic factors of [d]_q. A non-squarefree S (e.g. Phi(2)^2 Phi(4)
             # for 3/8) or a non-cyclotomic S is outside the subset-product
             # bookkeeping, so it is excluded from the law check.
             if p.is_squarefree and not depth_ok:
@@ -617,7 +620,7 @@ def classify_poles(result: QRealFactor) -> dict:
 
     The pole companion to classify_roots: each root of the denominator S(q) is a
     pole of the rational function [a/d]_q, and is labelled by the exact factor
-    it solves. A pole is "cyclotomic" when its irreducible factor is Phi_k(q)
+    it solves. A pole is "cyclotomic" when its irreducible factor is Phi(k)
     (so it is a primitive k-th root of unity on the unit circle) and "core" when
     the factor is non-cyclotomic (where the pole can leave |q| = 1 and drop the
     radius of convergence below 1). The complex coordinates are numerical
@@ -664,7 +667,7 @@ def classify_roots(result: QRealFactor) -> dict:
     A display helper for the serve visualizer: the cyclotomic-vs-core split of
     each root comes from the exact Z[q] factorisation in `result`, not from
     numerical proximity to the unit circle. A root is "cyclotomic" exactly when
-    the irreducible factor it solves is a Phi_d(q) (so it is a primitive d-th
+    the irreducible factor it solves is a Phi(d) (so it is a primitive d-th
     root of unity and sits on the unit circle, an n-gon vertex); it is "core"
     when its factor is a non-cyclotomic core factor. The complex coordinates
     themselves are numerical (sympy nroots) and are for plotting only; the kind

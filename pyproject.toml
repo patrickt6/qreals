@@ -65,6 +65,10 @@ features = ["numpy>=1.21"]
 # This extra is kept as a no-op alias so `pip install qreals[serve]` still works
 # for anyone following older instructions. Start the app with: qreals serve
 serve = []
+# Fast exact polynomial arithmetic (FLINT). The denom dossier meets its
+# one-second budget at d = 10000 with this installed; sympy picks it up
+# automatically when present.
+fast = ["python-flint>=0.6"]
 # The documentation site: mkdocs-material for the pages, mkdocstrings for the
 # API reference generated from the docstrings. Not needed to use qreals.
 docs = ["mkdocs-material>=9", "mkdocstrings[python]>=0.24"]
@@ -91,7 +95,7 @@ packages = ["src/qreals"]
 # web/ is a real package (has __init__.py), so `packages` already ships it; its
 # .css/.js/.html assets are tracked files and hatchling includes them by default.
 # (A force-include of src/qreals/web here would collide on web/__init__.py and
-# break the wheel build — do not re-add it.)
+# break the wheel build, so do not re-add it.)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

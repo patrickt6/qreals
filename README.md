@@ -81,6 +81,7 @@ subcommand (add `--json` for machine output), and a card in `qreals serve`.
 | Factor R(q), S(q) | Factor numerator and denominator of `[a/b]_q` over Z[q], labelling each cyclotomic factor. |
 | Roots of R(q) | Plot the complex roots of R(q) on the unit circle, splitting cyclotomic roots from the core. |
 | Jump gap | The right and left q-versions of p/s and the factored gap between them. |
+| Denominator dossier `qreals denom a/d` | One screen per fraction: S(q) expanded and factored, the cyclotomic index set T, deg S vs d-1, the S(1) = d check, the class (FULL / COLLAPSE / REPEATED / NONCYC), a^2 mod d, and every coprime split d = d+ d- with its discrepancy classified EXACT, POLYNOMIAL, or RATIO. Flags: `--json`, `--tex`. |
 
 **q-reals**
 
@@ -126,6 +127,20 @@ subcommand (add `--json` for machine output), and a card in `qreals serve`.
 |---|---|
 | OEIS lookup | Look a coefficient sequence up in the OEIS, re-verified against the b-file. |
 
+### Worked example
+
+```
+$ qreals denom 19/60
+fraction in lowest terms: 19/60
+continued fraction: [0; 3, 6, 3]
+S(q) factored = Phi_2 * Phi_3 * Phi_4 * Phi_5 * Phi_6
+class: COLLAPSE
+60 = 3 * 20   RATIO   (Phi_10 Phi_20) / Phi_6
+```
+
+`qreals denom --help` carries the full worked example with its exact output;
+the test suite replays it, so the documentation cannot drift from the tool.
+
 ## Optional extras
 
 The web app works out of the box. These extras add the terminal interfaces:
@@ -140,6 +155,7 @@ pip install "qreals[app,proof,oeis]"
 | `[proof]` | Step-by-step certificates, run `qreals certify` |
 | `[oeis]` | OEIS lookup |
 | `[features]` | numpy for `Fingerprint.as_numpy` |
+| `[fast]` | python-flint for fast exact polynomial arithmetic (large denominators) |
 
 ## License
 
