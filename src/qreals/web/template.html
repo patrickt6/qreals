@@ -10,15 +10,42 @@
 <script>
 window.MathJax = {
   tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
-  svg: { fontCache: "global" },
+  chtml: { fontURL: "/vendor/mathjax/es5/output/chtml/fonts/woff-v2" },
   options: { skipHtmlTags: ["script","noscript","style","textarea","pre","code"] }
 };
 </script>
-<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<!-- MathJax is vendored under web/vendor/ and served locally so every page,
+     including all math, renders with no network access. -->
+<script id="MathJax-script" async src="/vendor/mathjax/es5/tex-chtml.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <style>__CSS__</style>
 </head>
 <body>
+
+<noscript>
+  <div class="noscript-note">
+    <p><b>JavaScript is off, so the calculator cannot run in this page.</b>
+    Every computation is also available as plain text from the command line:
+    run <code>qreals</code> in a terminal. Results shown below any saved page
+    carry their CLI ASCII rendering in this block.</p>
+  </div>
+</noscript>
+
+<!-- The reusable plain-text fallback fragment. Every rendered result clones
+     this: the pre is filled with the CLI ASCII rendering of the result and the
+     button copies it, so the content survives JS or MathJax failure and can be
+     pasted into notes. The same ASCII text is mirrored into the noscript pre
+     so a published/saved copy of the DOM still shows it without scripts. -->
+<template id="textFallbackTpl">
+  <div class="rtext-wrap">
+    <div class="rtext-head">
+      <p class="rlabel">Plain text</p>
+      <button class="mini copy-btn" type="button">Copy as text</button>
+    </div>
+    <pre class="rtext"></pre>
+    <noscript><pre class="rtext rtext-noscript"></pre></noscript>
+  </div>
+</template>
 
 <nav class="nav">
   <div class="nav-inner">

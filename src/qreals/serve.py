@@ -33,6 +33,7 @@ from . import app as _app
 from . import exports
 from . import features as _features
 from . import format_laurent
+from . import formatter as fmt
 from ._parsing import parse_real
 from .store import SavedEntry
 
@@ -872,10 +873,7 @@ def _annotate_registry() -> None:
         if meta["input_kind"] in (_REAL, _RATIONAL):
             for field in meta["fields"]:
                 if field["name"] in ("input", "y"):
-                    try:
-                        field["tex"] = str(sp.latex(sp.sympify(field["example"])))
-                    except Exception:  # noqa: BLE001 - keep the raw example
-                        field["tex"] = field["example"]
+                    field["tex"] = fmt.to_tex(field["example"])
 
 
 _annotate_registry()
@@ -909,7 +907,7 @@ def _latex_for_coeffs(coeffs: list[int], valuation: int = 0) -> str:
 def _sym(text: str) -> str:
     """LaTeX for a parsed real, falling back to the raw text if it will not parse."""
     try:
-        return str(sp.latex(parse_real(text)))
+        return fmt.to_tex(parse_real(text))
     except Exception:  # noqa: BLE001 - a label is shown verbatim if unparsed
         return str(text)
 
@@ -1021,7 +1019,7 @@ def compute(
             res = _app.compute_rational(p, s)
             data = res["data"]
             expr = sp.sympify(data["expr"])
-            latex = r"\left[\tfrac{%d}{%d}\right]_q = %s" % (p, s, sp.latex(expr))
+            latex = "%s = %s" % (fmt.qrat_tex(p, s), fmt.to_tex(expr))
             return {
                 "latex": latex,
                 "text": data["expr"],
@@ -1033,19 +1031,13 @@ def compute(
             from .qrat_exact import q_rational_difference, q_rational_exact
             from .rational import q as _q
 
-            def _qlab(a: int, b: int) -> str:
-                return (r"[%d]_q" % a) if b == 1 else (
-                    r"\left[\tfrac{%d}{%d}\right]_q" % (a, b)
-                )
-
             yv = str(args.get("y") or "").strip()
             if not yv:
                 ex = q_rational_exact(input_text)
                 P, Q = sp.factor(ex.P), sp.factor(ex.Q)
-                latex = r"%s = \dfrac{%s}{%s}" % (
-                    _qlab(ex.a, ex.b),
-                    sp.latex(P),
-                    sp.latex(Q),
+                latex = "%s = %s" % (
+                    fmt.qrat_tex(ex.a, ex.b),
+                    fmt.display_fraction_tex(fmt.to_tex(P), fmt.to_tex(Q)),
                 )
                 at1 = sp.cancel(ex.P / ex.Q).subs(_q, 1)
                 return {
@@ -1062,12 +1054,11 @@ def compute(
                 }
             d = q_rational_difference(input_text, yv)
             num_f, den_f = sp.factor(d.num), sp.factor(d.den)
-            xl, yl = _qlab(d.x.a, d.x.b), _qlab(d.y.a, d.y.b)
-            latex = r"%s - %s = \dfrac{%s}{%s}" % (
+            xl, yl = fmt.qrat_tex(d.x.a, d.x.b), fmt.qrat_tex(d.y.a, d.y.b)
+            latex = "%s - %s = %s" % (
                 xl,
                 yl,
-                sp.latex(num_f),
-                sp.latex(den_f),
+                fmt.display_fraction_tex(fmt.to_tex(num_f), fmt.to_tex(den_f)),
             )
             return {
                 "latex": latex,
@@ -1107,7 +1098,7 @@ def compute(
             nn = int(str(input_text).strip())
             res = _app.compute_qint(nn)
             data = res["data"]
-            latex = r"[%d]_q = %s" % (nn, sp.latex(sp.sympify(data["q_int"])))
+            latex = "%s = %s" % (fmt.qint_tex(nn), fmt.to_tex(data["q_int"]))
             return {
                 "latex": latex,
                 "text": data["q_int"],
@@ -1121,7 +1112,7 @@ def compute(
         if op == "coefficients":
             res = _app.compute_coeffs(input_text, n)
             coeffs = res["data"]["coefficients"]
-            latex = r"\left[%s\right]_q = %s" % (_sym(input_text), _latex_for_coeffs(coeffs))
+            latex = "%s = %s" % (fmt.qreal_tex(_sym(input_text)), _latex_for_coeffs(coeffs))
             return {
                 "latex": latex,
                 "text": format_laurent(coeffs),
@@ -1133,8 +1124,8 @@ def compute(
             order = _int_arg(args, "order", 12)
             res = _app.compute_laurent(input_text, order)
             data = res["data"]
-            latex = r"\left[%s\right]_q = %s" % (
-                _sym(input_text),
+            latex = "%s = %s" % (
+                fmt.qreal_tex(_sym(input_text)),
                 _latex_for_coeffs(data["coefficients"]),
             )
             return {
@@ -1153,8 +1144,8 @@ def compute(
         if op == "prefix":
             res = _app.compute_prefix(input_text)
             data = res["data"]
-            latex = r"\text{prefix of } \left[%s\right]_q = %s" % (
-                _sym(input_text),
+            latex = r"\text{prefix of } %s = %s" % (
+                fmt.qreal_tex(_sym(input_text)),
                 _latex_for_coeffs(data["prefix"]),
             )
             return {
@@ -1191,9 +1182,8 @@ def compute(
             data = res["data"]
             sign = "+" if direction == "up" else "-"
             formula = "q[x]_q + 1" if direction == "up" else "([x]_q - 1)/q"
-            latex = r"\left[%s %s 1\right]_q = %s" % (
-                _sym(input_text),
-                sign,
+            latex = "%s = %s" % (
+                fmt.qreal_tex("%s %s 1" % (_sym(input_text), sign)),
                 _latex_for_coeffs(data["shifted_coefficients"]),
             )
             return {
@@ -1209,8 +1199,8 @@ def compute(
         if op == "readouts":
             res = _app.compute_readouts(input_text, n)
             data = res["data"]
-            latex = r"\left[%s\right]_q = %s" % (
-                _sym(input_text),
+            latex = "%s = %s" % (
+                fmt.qreal_tex(_sym(input_text)),
                 _latex_for_coeffs(data["coefficients"]),
             )
             return {
@@ -1230,10 +1220,10 @@ def compute(
             res = _app.compute_arith(input_text, y, n, kind)
             coeffs = res["data"]["coefficients"]
             sym = r"\cdot" if kind == "mul" else "+"
-            latex = r"\left[%s\right]_q %s \left[%s\right]_q = %s" % (
-                _sym(input_text),
+            latex = "%s %s %s = %s" % (
+                fmt.qreal_tex(_sym(input_text)),
                 sym,
-                _sym(y),
+                fmt.qreal_tex(_sym(y)),
                 _latex_for_coeffs(coeffs),
             )
             name = "product" if kind == "mul" else "sum"
@@ -1265,11 +1255,11 @@ def compute(
                 r"K = M_x \otimes M_y &= %s"
                 r"\end{aligned}"
             ) % (
-                sp.latex(r.x),
+                fmt.to_tex(r.x),
                 tex_sym,
-                sp.latex(r.y),
-                sp.latex(r.value),
-                sp.latex(r.matrix),
+                fmt.to_tex(r.y),
+                fmt.to_tex(r.value),
+                fmt.to_tex(r.matrix),
             )
             dominant = complex(sp.N(r.dominant_eigenvalue))
             points = []
@@ -1312,11 +1302,11 @@ def compute(
             res = _app.compute_deficit(input_text, y, n, dop)
             data = res["data"]
             sym = r"\cdot" if dop == "mul" else "+"
-            target = r"\left[%s %s %s\right]_q" % (_sym(input_text), sym, _sym(y))
-            engine = r"\left(\left[%s\right]_q %s \left[%s\right]_q\right)" % (
-                _sym(input_text),
+            target = fmt.qreal_tex("%s %s %s" % (_sym(input_text), sym, _sym(y)))
+            engine = r"\left(%s %s %s\right)" % (
+                fmt.qreal_tex(_sym(input_text)),
                 sym,
-                _sym(y),
+                fmt.qreal_tex(_sym(y)),
             )
             latex = r"%s - %s = %s" % (
                 target,
@@ -1338,8 +1328,8 @@ def compute(
         if op == "negation":
             res = _app.compute_negation(input_text, n)
             data = res["data"]
-            latex = r"\left[-%s\right]_q = %s" % (
-                _sym(input_text),
+            latex = "%s = %s" % (
+                fmt.qreal_tex("-%s" % _sym(input_text)),
                 exports._laurent_latex(
                     int(data["neg_valuation"]),
                     [int(c) for c in data["neg_coefficients"]],
@@ -1368,9 +1358,9 @@ def compute(
             verdict = (
                 "finite (Laurent polynomial)" if data["finite"] else "infinite series"
             )
-            latex = r"\left[%s\right]_q + \left[-%s\right]_q = %s" % (
-                _sym(input_text),
-                _sym(input_text),
+            latex = "%s + %s = %s" % (
+                fmt.qreal_tex(_sym(input_text)),
+                fmt.qreal_tex("-%s" % _sym(input_text)),
                 exports._laurent_latex(
                     int(data["valuation"]),
                     [int(c) for c in data["sum_coefficients"]],
@@ -1394,12 +1384,10 @@ def compute(
             p, s = _app._parse_rational(input_text)
             res = _app.compute_jumpgap(p, s)
             data = res["data"]
-            latex = r"\left[\tfrac{%d}{%d}\right]_q^{+} - \left[\tfrac{%d}{%d}\right]_q^{-} = %s" % (
-                p,
-                s,
-                p,
-                s,
-                sp.latex(sp.sympify(data["gap"])),
+            latex = "%s^{+} - %s^{-} = %s" % (
+                fmt.qrat_tex(p, s),
+                fmt.qrat_tex(p, s),
+                fmt.to_tex(data["gap"]),
             )
             return {
                 "latex": latex,
@@ -1417,9 +1405,8 @@ def compute(
 
         if op == "frieze":
             data = _frieze_data(input_text)
-            latex = r"\left[\tfrac{%d}{%d}\right]_q:\quad R(q) = %s" % (
-                data["r"],
-                data["s"],
+            latex = r"%s:\quad R(q) = %s" % (
+                fmt.qrat_tex(data["r"], data["s"]),
                 data["q_numerator"]["tex"],
             )
             # Plain-text form: one drawn row per line, cells separated by " | ",
@@ -1457,8 +1444,8 @@ def compute(
             else:
                 value_tex = "%.6f" % data["radius"]
                 value_txt = value_tex
-            latex = r"\rho\!\left(\left[%s\right]_q\right) \approx %s" % (
-                _sym(input_text),
+            latex = r"\rho\!\left(%s\right) \approx %s" % (
+                fmt.qreal_tex(_sym(input_text)),
                 value_tex,
             )
             return {
@@ -1502,8 +1489,8 @@ def compute(
             res = _app.compute_fingerprint(input_text, n_coeffs=n_coeffs)
             data = res["data"]
             feats = data["features"]
-            latex = r"\varphi\!\left(\left[%s\right]_q\right) \in \mathbb{R}^{%d}" % (
-                _sym(input_text),
+            latex = r"\varphi\!\left(%s\right) \in \mathbb{R}^{%d}" % (
+                fmt.qreal_tex(_sym(input_text)),
                 len(data["values"]),
             )
             rows = [[name, str(feats[name])] for name in data["names"][:12]]
@@ -1520,15 +1507,13 @@ def compute(
             result = factor_qreal(input_text)
             R = numerator_expr(result)
             S = denominator_expr(result)
-            latex = r"\left[\tfrac{%d}{%d}\right]_q = \dfrac{%s}{%s}" % (
-                result.a,
-                result.b,
-                sp.latex(R),
-                sp.latex(S),
+            latex = "%s = %s" % (
+                fmt.qrat_tex(result.a, result.b),
+                fmt.display_fraction_tex(fmt.to_tex(R), fmt.to_tex(S)),
             )
             cyclo = (
                 ", ".join(
-                    f"Phi_{d}^{e}" for d, e in sorted(result.cyclotomic_R.items())
+                    fmt.phi_label(d, e) for d, e in sorted(result.cyclotomic_R.items())
                 )
                 or "none"
             )
@@ -1558,10 +1543,9 @@ def compute(
             result = factor_qreal(input_text)
             S = denominator_expr(result)
             p = s_properties(input_text)
-            latex = r"S(q)\ \text{of}\ \left[\tfrac{%d}{%d}\right]_q = %s" % (
-                p.a,
-                p.d,
-                sp.latex(S),
+            latex = r"S(q)\ \text{of}\ %s = %s" % (
+                fmt.qrat_tex(p.a, p.d),
+                fmt.to_tex(S),
             )
             t_str = (
                 "{" + ", ".join(str(k) for k in p.index_set_T) + "}"
@@ -1663,10 +1647,10 @@ def compute(
             poles = pole_data["poles"]
             radius = pole_data["radius"]
             radius_index = pole_data["radius_index"]
-            latex = r"R(q) = %s" % sp.latex(R)
+            latex = "R(q) = %s" % fmt.to_tex(R)
             cyclo = (
                 ", ".join(
-                    f"Phi_{d}^{e}" for d, e in sorted(result.cyclotomic_R.items())
+                    fmt.phi_label(d, e) for d, e in sorted(result.cyclotomic_R.items())
                 )
                 or "none"
             )
@@ -1692,7 +1676,7 @@ def compute(
                 )
             if radius is not None:
                 where = (
-                    f"on Phi_{radius_index} (|q| = 1)"
+                    f"on {fmt.phi_label(radius_index)} (|q| = 1)"
                     if radius_index is not None
                     else "a non-cyclotomic core pole (|q| may be < 1)"
                 )
@@ -1750,7 +1734,7 @@ def compute(
             latex = (
                 r"c_n\!\left(\left[x\right]_q\right)\ \text{for }"
                 r"x\in\left[%s,\,%s\right],\ n=0,\dots,%d"
-                % (sp.latex(x_lo), sp.latex(x_hi), N - 1)
+                % (fmt.to_tex(x_lo), fmt.to_tex(x_hi), N - 1)
             )
             return {
                 "latex": latex,
@@ -1892,14 +1876,14 @@ def compute(
             rows.append(
                 [
                     "cyclotomic factor appearances",
-                    ", ".join(f"Phi_{k}:{n}" for k, n in appearances.items()),
+                    ", ".join(f"{fmt.phi_label(k)}:{n}" for k, n in appearances.items()),
                 ]
             )
             # the same tally as typeset math, so the row reads
             # Phi_2 : 17,  Phi_3 : 14, ... with real subscripts (rendered by the
             # front end when meta.rowTex names the row).
             appearances_tex = ",\\ ".join(
-                r"\Phi_{%d}\!:\!%d" % (k, n) for k, n in appearances.items()
+                r"%s\!:\!%d" % (fmt.phi_tex(k), n) for k, n in appearances.items()
             )
             return {
                 "latex": latex,
@@ -1976,8 +1960,8 @@ def compute(
             res = _app.compute_coeffs(input_text, n)
             coeffs = res["data"]["coefficients"]
             entry = _laurent_entry(input_text, coeffs)
-            latex = r"\left[%s\right]_q = %s" % (
-                _sym(input_text),
+            latex = "%s = %s" % (
+                fmt.qreal_tex(_sym(input_text)),
                 _latex_for_coeffs(coeffs),
             )
             return {
@@ -2099,25 +2083,20 @@ def preview(op: str, input_text: str, args: dict[str, Any] | None = None) -> dic
     try:
         if kind == _RATIONAL:
             p, s = _app._parse_rational(input_text)
-            base = r"\left[\tfrac{%d}{%d}\right]_q" % (p, s)
+            base = fmt.qrat_tex(p, s)
             if op == "jump-gap":
-                base = r"\left[\tfrac{%d}{%d}\right]_q^{+} - \left[\tfrac{%d}{%d}\right]_q^{-}" % (
-                    p,
-                    s,
-                    p,
-                    s,
-                )
+                base = "%s^{+} - %s^{-}" % (fmt.qrat_tex(p, s), fmt.qrat_tex(p, s))
             elif op == "factor":
-                base = r"R(q),\ S(q)\ \text{of}\ \left[\tfrac{%d}{%d}\right]_q" % (p, s)
+                base = r"R(q),\ S(q)\ \text{of}\ %s" % fmt.qrat_tex(p, s)
             elif op == "roots":
-                base = r"\{\,q : R(q)=0\,\}\ \text{of}\ \left[\tfrac{%d}{%d}\right]_q" % (p, s)
+                base = r"\{\,q : R(q)=0\,\}\ \text{of}\ %s" % fmt.qrat_tex(p, s)
             elif op == "frieze":
-                base = r"\text{frieze of}\ \left[\tfrac{%d}{%d}\right]_q" % (p, s)
+                base = r"\text{frieze of}\ %s" % fmt.qrat_tex(p, s)
             return {"latex": base}
 
         if kind == _INTEGER:
             nn = int(str(input_text).strip())
-            return {"latex": r"[%d]_q" % nn}
+            return {"latex": fmt.qint_tex(nn)}
 
         if kind == _SEQUENCE:
             from . import oeis as _oeis
@@ -2129,37 +2108,35 @@ def preview(op: str, input_text: str, args: dict[str, Any] | None = None) -> dic
             return {"latex": r"(%s)" % shown}
 
         # real-valued input (possibly with a second value y)
-        xl = sp.latex(_app._parse_real(input_text))
+        xl = fmt.to_tex(_app._parse_real(input_text))
         if op in ("q-sum", "q-product", "deficit"):
-            yl = sp.latex(_app._parse_real(str(args.get("y") or "")))
+            yl = fmt.to_tex(_app._parse_real(str(args.get("y") or "")))
             if op == "deficit":
                 sym = r"\cdot" if str(args.get("op", "add")) == "mul" else "+"
-                base = r"\left[%s %s %s\right]_q - \left(\left[%s\right]_q %s \left[%s\right]_q\right)" % (
-                    xl,
+                base = r"%s - \left(%s %s %s\right)" % (
+                    fmt.qreal_tex("%s %s %s" % (xl, sym, yl)),
+                    fmt.qreal_tex(xl),
                     sym,
-                    yl,
-                    xl,
-                    sym,
-                    yl,
+                    fmt.qreal_tex(yl),
                 )
             else:
                 sym = r"\cdot" if op == "q-product" else "+"
-                base = r"\left[%s\right]_q %s \left[%s\right]_q" % (xl, sym, yl)
+                base = "%s %s %s" % (fmt.qreal_tex(xl), sym, fmt.qreal_tex(yl))
             return {"latex": base}
         if op == "quad-arith":
-            yl = sp.latex(_app._parse_real(str(args.get("y") or "")))
+            yl = fmt.to_tex(_app._parse_real(str(args.get("y") or "")))
             sym = {"add": "+", "sub": "-", "mul": r"\cdot", "div": "/"}.get(
                 str(args.get("op", "add")), "+"
             )
             return {"latex": r"\left(%s\right) %s \left(%s\right)" % (xl, sym, yl)}
         if op == "negation":
-            return {"latex": r"\left[-%s\right]_q" % xl}
+            return {"latex": fmt.qreal_tex("-%s" % xl)}
         if op == "finiteness":
-            return {"latex": r"\left[%s\right]_q + \left[-%s\right]_q" % (xl, xl)}
+            return {"latex": "%s + %s" % (fmt.qreal_tex(xl), fmt.qreal_tex("-%s" % xl))}
         if op == "shift":
             sign = "-" if str(args.get("direction", "up")) == "down" else "+"
-            return {"latex": r"\left[%s %s 1\right]_q" % (xl, sign)}
-        return {"latex": r"\left[%s\right]_q" % xl}
+            return {"latex": fmt.qreal_tex("%s %s 1" % (xl, sign))}
+        return {"latex": fmt.qreal_tex(xl)}
     except Exception:  # noqa: BLE001 - an unfinished input simply has no preview
         return {"latex": ""}
 
@@ -2175,6 +2152,37 @@ import importlib.resources as _res
 def _asset(name: str) -> str:
     """Read a frontend asset shipped under qreals/web/."""
     return (_res.files("qreals.web") / name).read_text(encoding="utf-8")
+
+
+# Content types for the vendored static files (the local MathJax bundle).
+_VENDOR_TYPES = {
+    ".js": "application/javascript",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".css": "text/css",
+}
+
+
+def _vendor_asset(rel: str) -> tuple[bytes, str] | None:
+    """Read a vendored static file shipped under qreals/web/vendor/.
+
+    MathJax and its fonts are vendored there so every page renders all math
+    with no network access. Returns (bytes, content type), or None for a
+    missing or unsafe path.
+    """
+    parts = [p for p in str(rel).replace("\\", "/").split("/") if p]
+    if not parts or any(p == ".." for p in parts):
+        return None
+    node = _res.files("qreals.web") / "vendor"
+    for part in parts:
+        node = node / part
+    try:
+        data = node.read_bytes()
+    except (FileNotFoundError, IsADirectoryError, OSError):
+        return None
+    name = parts[-1]
+    ext = name[name.rfind(".") :] if "." in name else ""
+    return data, _VENDOR_TYPES.get(ext, "application/octet-stream")
 
 
 def _index_html() -> str:
@@ -2425,6 +2433,16 @@ def _build_fastapi_app() -> Any:
     async def version_endpoint(_request: Request) -> Any:
         return JSONResponse(check_for_update())
 
+    async def vendor_endpoint(request: Request) -> Any:
+        from starlette.responses import Response
+
+        found = _vendor_asset(str(request.path_params.get("path", "")))
+        if found is None:
+            return Response(status_code=404)
+        data, ctype = found
+        return Response(content=data, media_type=ctype)
+
+    application.add_route("/vendor/{path:path}", vendor_endpoint, methods=["GET"])
     application.add_route("/", index, methods=["GET"])
     application.add_route("/compute", compute_endpoint, methods=["POST"])
     application.add_route("/preview", preview_endpoint, methods=["POST"])
@@ -2481,6 +2499,16 @@ def _build_flask_app() -> Any:
     @application.get("/version")
     def version_endpoint() -> Any:
         return jsonify(check_for_update())
+
+    @application.get("/vendor/<path:rel>")
+    def vendor_endpoint(rel: str) -> Any:
+        from flask import Response
+
+        found = _vendor_asset(rel)
+        if found is None:
+            return Response("not found", status=404)
+        data, ctype = found
+        return Response(data, mimetype=ctype)
 
     return application
 

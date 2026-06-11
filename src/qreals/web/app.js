@@ -139,6 +139,20 @@ function latexToEngine(tex){
   return _expandTex(tex).replace(/\s+/g, "");
 }
 
+// Build the plain-text fallback block from the reusable template fragment
+// (#textFallbackTpl in template.html): the CLI ASCII rendering of the result,
+// a copy-as-text button, and a noscript mirror so a saved copy of the DOM
+// still shows the text when scripts (and so MathJax) cannot run.
+function textFallbackHtml(text){
+  const tpl = document.getElementById("textFallbackTpl");
+  if (!tpl){
+    return '<div class="rtext-wrap"><pre class="rtext">' + esc(text) + '</pre></div>';
+  }
+  const node = tpl.content.firstElementChild.cloneNode(true);
+  node.querySelectorAll("pre.rtext").forEach((p) => { p.textContent = text; });
+  return node.outerHTML;
+}
+
 // ---- MathJax helpers ----------------------------------------------------
 function typeset(el){
   if (window.MathJax && window.MathJax.typesetPromise){
@@ -829,10 +843,7 @@ function renderResultInto(root, r, opts){
       html += '</div>';
     }
   }
-  html += '<div class="rtext-wrap"><div class="rtext-head">' +
-    '<p class="rlabel">Plain text</p>' +
-    '<button class="mini copy-btn" type="button">Copy</button></div>' +
-    '<pre class="rtext">' + esc(r.text) + '</pre></div>';
+  html += textFallbackHtml(r.text);
   if (opts.actions === "main"){
     html += '<div class="result-actions">' +
       '<button class="mini primary save-btn" type="button">Save this result</button>' +
@@ -2232,6 +2243,7 @@ function setupViz(p, root){
   if (!modes){ drawViz(fig, p, cap); return; }
   let mode = modes[0].id;
   const render = () => {
+    if (typeof Plotly === "undefined"){ if (fig) fig.innerHTML = VIZ_NOPLOT; return; }
     const m = modes.find((x) => x.id === mode) || modes[0];
     m.fn(fig, p, cap);
     root.querySelectorAll("[data-vizmode]").forEach((b) => {

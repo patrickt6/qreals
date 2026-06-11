@@ -231,3 +231,40 @@ def factored_tex(
 def congruence_tex(lhs: str, rhs: str, mod: int) -> str:
     """A congruence in TeX."""
     return rf"{lhs} \equiv {rhs} \pmod{{{int(mod)}}}"
+
+
+def qreal_tex(inner: str) -> str:
+    """The MGO bracket [inner]_q around already-rendered TeX."""
+    return rf"\left[{inner}\right]_q"
+
+
+def qrat_tex(a: int, b: int) -> str:
+    """The q-rational [a/b]_q, collapsing to the q-integer when b = 1."""
+    a, b = int(a), int(b)
+    if b == 1:
+        return qint_tex(a)
+    return rf"\left[\tfrac{{{a}}}{{{b}}}\right]_q"
+
+
+def display_fraction_tex(num: str, den: str) -> str:
+    """A display-size TeX fraction from already-rendered parts."""
+    return rf"\dfrac{{{num}}}{{{den}}}"
+
+
+def to_tex(obj: object) -> str:
+    """The one shared TeX emitter for math objects.
+
+    All server-side TeX generation routes through this function (or the
+    object-specific emitters above): sympy objects render via sympy's LaTeX
+    printer, integers print verbatim, and strings are parsed as sympy
+    expressions when possible, falling back to the raw text so an unparsed
+    label is still shown.
+    """
+    if isinstance(obj, sp.Basic | sp.MatrixBase):
+        return str(sp.latex(obj))
+    if isinstance(obj, int):
+        return str(int(obj))
+    try:
+        return str(sp.latex(sp.sympify(obj)))
+    except Exception:  # noqa: BLE001 - an unparsed label is shown verbatim
+        return str(obj)

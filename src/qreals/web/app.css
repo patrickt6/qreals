@@ -573,3 +573,8 @@ body{padding-bottom:0}  /* tray overlays; pages already scroll */
 #home:not(.hidden), #opView:not(.hidden), #savedView:not(.hidden), #workspaceView:not(.hidden){
   animation:viewFade var(--motion) var(--ease)
 }
+
+/* The page-level noscript notice: shown only when scripts are off, pointing
+   to the CLI ASCII path so the content survives JS failure. */
+.noscript-note{max-width:860px;margin:18px auto;padding:12px 16px;
+  border:1px solid var(--line,#d8dde3);border-radius:8px;font-size:.92rem}
