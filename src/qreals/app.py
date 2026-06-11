@@ -617,6 +617,108 @@ def compute_denom(a: int, b: int) -> Result:
     }
 
 
+def compute_bricks(
+    n: int, lcm_subset: str | None = None, at: str | None = None
+) -> Result:
+    """The cyclotomic reference card of [n]_q.
+
+    [n]_q expanded; one table row per divisor e >= 2 of n with the brick of
+    index e expanded, its degree phi(e), and its value at 1; the divisors
+    partitioned into prime powers and composite non-prime-powers; optionally
+    the lcm of a divisor subset and the exact value of every factor at a
+    rational point or a root of unity.
+    """
+    from . import bricks as bricks_mod
+    from . import formatter
+
+    subset = bricks_mod.parse_lcm_subset(lcm_subset) if lcm_subset else None
+    card = bricks_mod.bricks_card(n, lcm_subset=subset, at=at or None)
+    data = bricks_mod.card_data(card)
+
+    blocks: list[dict[str, Any]] = [
+        {
+            "kind": "poly",
+            "label": formatter.qint_label(card.n),
+            "text": formatter.poly_ascii(card.qint.as_expr()),
+        },
+        {
+            "kind": "table",
+            "columns": ["e", "factor expanded", "deg = phi(e)", "value at 1"],
+            "rows": [
+                [
+                    formatter.phi_label(r.e),
+                    formatter.poly_ascii(r.phi.as_expr(), wrap=10**9),
+                    str(r.deg),
+                    str(r.at_1),
+                ]
+                for r in card.rows
+            ],
+        },
+        {
+            "kind": "kv",
+            "pairs": [
+                (
+                    "prime-power divisors",
+                    "{" + ", ".join(str(e) for e in card.prime_powers) + "}"
+                    if card.prime_powers
+                    else "none",
+                ),
+                (
+                    "composite non-prime-powers",
+                    "{" + ", ".join(str(e) for e in card.composites) + "}"
+                    if card.composites
+                    else "none",
+                ),
+            ],
+        },
+    ]
+    if card.lcm_subset is not None:
+        blocks.append(
+            {
+                "kind": "kv",
+                "pairs": [
+                    (
+                        "lcm of {" + ", ".join(str(e) for e in card.lcm_subset) + "}",
+                        str(card.lcm_value),
+                    )
+                ],
+            }
+        )
+    if card.at_point is not None:
+        e0 = bricks_mod._at_order(card)
+        blocks.append(
+            {
+                "kind": "table",
+                "columns": ["factor", f"exact value at {card.at_point}", "zero"],
+                "rows": [
+                    [
+                        v.label,
+                        bricks_mod.at_value_ascii(v, e0),
+                        "yes" if v.is_zero else "no",
+                    ]
+                    for v in card.at_values
+                ],
+            }
+        )
+    blocks.append(
+        {
+            "kind": "note",
+            "text": (
+                "Each row is an irreducible brick over Z[q]; their product is "
+                "[n]_q. The value at 1 is p for a prime-power index p^k and 1 "
+                "otherwise, computed by evaluation and checked against that "
+                "rule. Root-of-unity evaluation is exact in the power basis."
+            ),
+        }
+    )
+    return {
+        "kind": "bricks",
+        "title": f"cyclotomic reference card of {formatter.qint_label(card.n)}",
+        "blocks": blocks,
+        "data": data,
+    }
+
+
 def _t_set_str(indices: list[int]) -> str:
     """Render a cyclotomic index set T as {k, ...} or 'empty'."""
     return "{" + ", ".join(str(k) for k in indices) + "}" if indices else "empty"
@@ -1688,6 +1790,29 @@ def _prompt_denom(qst: Any) -> dict[str, Any] | None:
     return {"a": a, "b": b}
 
 
+def _prompt_bricks(qst: Any) -> dict[str, Any] | None:
+    n = _ask_int(qst, "integer n", "12", low=1)
+    if n is None:
+        return None
+    lcm_subset = qst.text(
+        "lcm of a divisor subset, comma-separated (empty for none)", default=""
+    ).ask()
+    if lcm_subset is None:
+        return None
+    at = qst.text(
+        "evaluate every factor at a point: a rational like 1/2 or a root of "
+        "unity like zeta_12 (empty for none)",
+        default="",
+    ).ask()
+    if at is None:
+        return None
+    return {
+        "n": n,
+        "lcm_subset": lcm_subset.strip() or None,
+        "at": at.strip() or None,
+    }
+
+
 def _prompt_satlas(qst: Any) -> dict[str, Any] | None:
     d_max = _ask_int(qst, "max denominator d", "12", low=2)
     if d_max is None:
@@ -1918,6 +2043,15 @@ CAPABILITIES: list[Capability] = [
         "(FULL/COLLAPSE/REPEATED/NONCYC), and every coprime-split discrepancy",
         _prompt_denom,
         compute_denom,
+    ),
+    Capability(
+        "bricks",
+        "Cyclotomic reference card of [n]_q",
+        "[n]_q expanded, one row per cyclotomic factor (expanded, deg = phi(e), "
+        "value at 1), prime-power vs composite divisors, optional lcm and exact "
+        "evaluation at a rational point or root of unity",
+        _prompt_bricks,
+        compute_bricks,
     ),
     Capability(
         "satlas",
@@ -2649,6 +2783,21 @@ def _denom_help_epilog() -> str:
     )
 
 
+# The worked example shown by `qreals bricks --help`. Built from the live
+# computation so the help text can never drift from the tool; the test suite
+# runs the command and asserts the output matches this block byte for byte.
+def _bricks_help_epilog() -> str:
+    import textwrap
+
+    payload = json.dumps(compute_bricks(12)["data"], indent=2)
+    return (
+        "worked example:\n\n"
+        "  $ qreals bricks 12 --json\n"
+        + textwrap.indent(payload, "  ")
+        + "\n"
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="qreals",
@@ -2744,6 +2893,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="emit the TeX block of the dossier (compiles standalone)",
     )
     add_json(p_denom)
+
+    p_bricks = sub.add_parser(
+        "bricks",
+        help="cyclotomic reference card of [n]_q: every factor expanded, "
+        "deg = phi(e), value at 1, prime-power vs composite divisors",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_bricks_help_epilog(),
+    )
+    p_bricks.add_argument("n", type=int, help="the q-integer index, e.g. 12")
+    p_bricks.add_argument(
+        "--lcm",
+        metavar="SUBSET",
+        default=None,
+        help="comma-separated divisors of n; print their lcm, e.g. --lcm 2,3,4",
+    )
+    p_bricks.add_argument(
+        "--at",
+        metavar="POINT",
+        default=None,
+        help="evaluate every factor exactly at a rational like 1/2 or a root "
+        "of unity like zeta_12",
+    )
+    p_bricks.add_argument(
+        "--tex",
+        action="store_true",
+        help="emit the TeX block of the card (compiles standalone)",
+    )
+    add_json(p_bricks)
 
     p_satlas = sub.add_parser(
         "satlas",
@@ -3005,6 +3182,14 @@ def _run_headless(args: argparse.Namespace) -> int:
                 print(dossier_tex(denom_dossier(a, b)))
                 return 0
             result = compute_denom(a, b)
+        elif args.command == "bricks":
+            if args.tex:
+                from .bricks import bricks_card, card_tex, parse_lcm_subset
+
+                subset = parse_lcm_subset(args.lcm) if args.lcm else None
+                print(card_tex(bricks_card(args.n, lcm_subset=subset, at=args.at)))
+                return 0
+            result = compute_bricks(args.n, args.lcm, args.at)
         elif args.command == "satlas":
             result = compute_satlas(args.d_max, args.a_max)
         elif args.command == "saturation":
