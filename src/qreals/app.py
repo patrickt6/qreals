@@ -2067,6 +2067,67 @@ def _prompt_conj(qst: Any) -> dict[str, Any] | None:
     return {"name": name, "until": until}
 
 
+def _prompt_check(qst: Any) -> dict[str, Any] | None:
+    answer = qst.text("claims directory", default="claims").ask()
+    if answer is None or not answer.strip():
+        return None
+    return {"claims_dir": answer.strip()}
+
+
+def compute_check(
+    claims_dir: str, budget_seconds: float | None = None
+) -> Result:
+    """Replay a claims directory as a result screen.
+
+    Each claim replays through the public CLI subprocess; the screen lists
+    PASS/DRIFT per claim, anything not run under the budget, and the totals.
+    The flat data dict is the same report object the headless --json prints.
+    """
+    from pathlib import Path
+
+    from . import check as check_mod
+
+    budget = (
+        budget_seconds if budget_seconds is not None
+        else check_mod.DEFAULT_BUDGET_SECONDS
+    )
+    report = check_mod.check_dir(Path(claims_dir), budget_seconds=budget)
+    rows = [
+        [
+            e["status"],
+            e["file"],
+            e.get("label", ""),
+            "" if e.get("runtime_seconds") is None
+            else f"{e['runtime_seconds']:.3f}s",
+        ]
+        for e in report["claims"]
+    ]
+    blocks: list[dict[str, Any]] = [
+        {"kind": "table", "columns": ["status", "file", "label", "runtime"],
+         "rows": rows},
+    ]
+    if report["not_run"]:
+        blocks.append({
+            "kind": "note",
+            "text": "budget exhausted; NOT covered: "
+            + ", ".join(report["not_run"]),
+        })
+    passed = sum(1 for e in report["claims"] if e["status"] == "PASS")
+    blocks.append({
+        "kind": "kv",
+        "pairs": [
+            ("claims passing", f"{passed}/{len(report['claims'])}"),
+            ("elapsed", f"{report['elapsed_seconds']:.3f}s"),
+            ("budget", f"{report['budget_seconds']:.1f}s"),
+        ],
+    })
+    return {
+        "title": f"claim replay of {claims_dir}",
+        "blocks": blocks,
+        "data": report,
+    }
+
+
 def _prompt_satlas(qst: Any) -> dict[str, Any] | None:
     d_max = _ask_int(qst, "max denominator d", "12", low=2)
     if d_max is None:
@@ -2323,6 +2384,14 @@ CAPABILITIES: list[Capability] = [
         "the registry; survivors report range, count, and nearest misses",
         _prompt_conj,
         compute_conj,
+    ),
+    Capability(
+        "check",
+        "Replay claim files (PASS / DRIFT)",
+        "replay every claim in a directory through the public CLI, hash the "
+        "--json output, and report PASS or DRIFT per claim under a time budget",
+        _prompt_check,
+        compute_check,
     ),
     Capability(
         "satlas",
@@ -3086,6 +3155,20 @@ def _conj_help_epilog() -> str:
     )
 
 
+def _check_help_epilog() -> str:
+    import textwrap
+
+    from .check import CLAIM_SCHEMA
+
+    payload = json.dumps(CLAIM_SCHEMA, indent=2)
+    return (
+        "worked example:\n\n"
+        "  $ qreals check --show-schema\n"
+        + textwrap.indent(payload, "  ")
+        + "\n"
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="qreals",
@@ -3272,6 +3355,53 @@ def _build_parser() -> argparse.ArgumentParser:
         help="checkpoint interval in seconds (default 60)",
     )
     add_json(p_conj)
+
+    p_check = sub.add_parser(
+        "check",
+        help="replay a directory of claim files through the public CLI and "
+        "report PASS or DRIFT per claim, under a total time budget",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_check_help_epilog(),
+    )
+    p_check.add_argument(
+        "claims_dir",
+        nargs="?",
+        default=None,
+        help="directory of *.json claim files to replay (or to add to with --new)",
+    )
+    p_check.add_argument(
+        "--new",
+        dest="new_invocation",
+        nargs="+",
+        default=None,
+        metavar="TOOL",
+        help="record a new claim: the tool and its arguments, e.g. "
+        "--new denom 19/60 --label 'the 19/60 dossier'",
+    )
+    p_check.add_argument(
+        "--label",
+        default=None,
+        help="free-text label for --new (linted; claim files ship publicly)",
+    )
+    p_check.add_argument(
+        "--budget",
+        type=float,
+        default=None,
+        metavar="S",
+        help="total replay budget in seconds (default 60)",
+    )
+    p_check.add_argument(
+        "--show-schema",
+        action="store_true",
+        help="print the documented claim-file schema and exit",
+    )
+    p_check.add_argument(
+        "--lint-tree",
+        action="store_true",
+        help="lint the tree at claims_dir (default .) for banned characters "
+        "and the private blocklist named by QREALS_BLOCKLIST; exit 1 on hits",
+    )
+    add_json(p_check)
 
     p_satlas = sub.add_parser(
         "satlas",
@@ -3769,7 +3899,60 @@ def main(argv: list[str] | None = None) -> int:
         return _run_serve(args)
     if args.command == "conj":
         return _run_conj(args)
+    if args.command == "check":
+        return _run_check(args)
     return _run_headless(args)
+
+
+def _run_check(args: argparse.Namespace) -> int:
+    """Replay claims (or record one, or lint a tree); exit 1 on any drift.
+
+    Human and JSON renderings print from the same report object (G0.7).
+    """
+    from . import check as check_mod
+    from pathlib import Path
+
+    if args.show_schema:
+        print(json.dumps(check_mod.CLAIM_SCHEMA, indent=2))
+        return 0
+    if args.lint_tree:
+        root = Path(args.claims_dir or ".")
+        hits, loaded = check_mod.lint_tree(root)
+        for hit in hits:
+            print(hit)
+        if not loaded:
+            print("note: private blocklist absent, that part skipped", file=sys.stderr)
+        print(f"tree lint: {len(hits)} hit(s) under {root}")
+        return 1 if hits else 0
+    if args.claims_dir is None:
+        print("error: give a claims directory (or --show-schema)", file=sys.stderr)
+        return 2
+    claims_dir = Path(args.claims_dir)
+    if args.new_invocation is not None:
+        if not args.label:
+            print("error: --new requires --label", file=sys.stderr)
+            return 2
+        tool, *tool_args = args.new_invocation
+        try:
+            path, claim = check_mod.new_claim(claims_dir, tool, tool_args, args.label)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps({"file": str(path), "claim": claim}, indent=2))
+        else:
+            print(f"recorded {path} ({claim['runtime_seconds']:.3f}s)")
+        return 0
+    if not claims_dir.is_dir():
+        print(f"error: {claims_dir} is not a directory", file=sys.stderr)
+        return 2
+    budget = args.budget if args.budget is not None else check_mod.DEFAULT_BUDGET_SECONDS
+    report = check_mod.check_dir(claims_dir, budget_seconds=budget)
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print("\n".join(check_mod.report_lines(report)))
+    return 0 if report["ok"] else 1
 
 
 def _run_conj(args: argparse.Namespace) -> int:
