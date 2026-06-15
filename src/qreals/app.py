@@ -714,6 +714,135 @@ def compute_why(a: int, b: int, e: int) -> Result:
     }
 
 
+def compute_twin(a: int, b: int, across: int | None = None) -> Result:
+    """Fractions sharing the same q-denominator polynomial S as [a/d]_q.
+
+    By default the sharing class at d: every numerator coprime to d whose
+    denominator S equals S(a/d), their pairing under a -> -a^{-1} mod d, and,
+    at a modulus divisible by p^2 with a square root of minus one mod p, the
+    roots that enlarge the class beyond that pair. With --across the search
+    spans every modulus up to the bound and reports any fraction whose S matches
+    up to a unit power of q, the range searched declared in the output.
+    """
+    from . import formatter
+    from . import twin as twin_mod
+
+    if across is not None:
+        ta = twin_mod.twin_across(a, b, across)
+        data = twin_mod.twin_across_data(ta)
+        rep = ta.rep
+        blocks: list[dict[str, Any]] = [
+            {
+                "kind": "kv",
+                "pairs": [
+                    ("fraction in lowest terms", f"{rep.a}/{rep.d}"),
+                    ("search range", data["search_range"]),
+                    ("class", rep.klass),
+                ],
+            },
+            {
+                "kind": "poly",
+                "label": "S(q)",
+                "text": formatter.poly_ascii(rep.S.as_expr()),
+            },
+            {
+                "kind": "poly",
+                "label": "S(q) factored",
+                "text": twin_mod.s_factored(rep),
+            },
+        ]
+        if ta.matches:
+            blocks.append(
+                {
+                    "kind": "table",
+                    "columns": ["fraction b/d'", "S match unit q^k"],
+                    "rows": [
+                        [f"{m[0]}/{m[1]}", formatter.q_power(m[2])] for m in ta.matches
+                    ],
+                }
+            )
+        else:
+            blocks.append(
+                {
+                    "kind": "note",
+                    "text": (
+                        "no fraction at a modulus up to the search bound shares "
+                        "S up to a unit power of q."
+                    ),
+                }
+            )
+        blocks.append(
+            {
+                "kind": "note",
+                "text": (
+                    "S(1) = d, so a match up to a unit forces the same modulus d; "
+                    "the search still covers the whole declared range of moduli."
+                ),
+            }
+        )
+        return {
+            "kind": "twin",
+            "title": f"twins of [{rep.a}/{rep.d}]_q across moduli up to {ta.dmax}",
+            "blocks": blocks,
+            "data": data,
+        }
+
+    tc = twin_mod.twin_class(a, b)
+    data = twin_mod.twin_class_data(tc)
+    rep = tc.rep
+    t_str = twin_mod.index_set_ascii(rep)
+    blocks = [
+        {
+            "kind": "kv",
+            "pairs": [
+                ("fraction in lowest terms", f"{rep.a}/{rep.d}"),
+                ("search range", data["search_range"]),
+                ("sharing class", twin_mod.members_ascii(tc.members)),
+                ("class size", str(len(tc.members))),
+                ("index set T", t_str),
+                ("class", rep.klass),
+            ],
+        },
+        {
+            "kind": "poly",
+            "label": "shared S(q)",
+            "text": formatter.poly_ascii(rep.S.as_expr()),
+        },
+        {
+            "kind": "poly",
+            "label": "shared S(q) factored",
+            "text": twin_mod.s_factored(rep),
+        },
+        {
+            "kind": "table",
+            "columns": ["numerator a", "-a^{-1} mod d", "paired in class"],
+            "rows": [
+                [str(b_), str(n), "yes" if paired else "no"]
+                for b_, n, paired in tc.pairing
+            ],
+        },
+    ]
+    note = twin_mod.sqrt_minus_one_ascii(tc)
+    if note:
+        blocks.append({"kind": "note", "text": "square root of minus one: " + note})
+    blocks.append(
+        {
+            "kind": "note",
+            "text": (
+                "the sharing class collects every numerator coprime to d with the "
+                "same denominator S; a -> -a^{-1} mod d is the pairing that always "
+                "preserves S, exact at a prime modulus."
+            ),
+        }
+    )
+    return {
+        "kind": "twin",
+        "title": f"twins of [{rep.a}/{rep.d}]_q sharing S(q)",
+        "blocks": blocks,
+        "data": data,
+    }
+
+
 def compute_bricks(
     n: int, lcm_subset: str | None = None, at: str | None = None
 ) -> Result:
@@ -2110,6 +2239,25 @@ def _prompt_why(qst: Any) -> dict[str, Any] | None:
     return {"a": a, "b": b, "e": e}
 
 
+def _prompt_twin(qst: Any) -> dict[str, Any] | None:
+    answer = qst.text(
+        "rational a/d  (for example 31/169)",
+        default="31/169",
+        validate=_validate_rational,
+    ).ask()
+    if answer is None:
+        return None
+    a, b = _parse_rational(answer.strip())
+    across = qst.text(
+        "search other moduli up to dmax (empty to stay at d)",
+        default="",
+    ).ask()
+    if across is None:
+        return None
+    across = across.strip()
+    return {"a": a, "b": b, "across": int(across) if across else None}
+
+
 def _prompt_bricks(qst: Any) -> dict[str, Any] | None:
     n = _ask_int(qst, "integer n", "12", low=1)
     if n is None:
@@ -2464,6 +2612,15 @@ CAPABILITIES: list[Capability] = [
         "coefficient vectors in the power basis",
         _prompt_why,
         compute_why,
+    ),
+    Capability(
+        "twin",
+        "Fractions sharing the denominator S of [a/d]_q",
+        "the numerators coprime to d with the same S, paired under a -> -a^{-1} "
+        "mod d, with any square root of minus one annotated; --across searches "
+        "other moduli for an S matching up to a unit power of q",
+        _prompt_twin,
+        compute_twin,
     ),
     Capability(
         "bricks",
@@ -3244,6 +3401,21 @@ def _why_help_epilog() -> str:
     )
 
 
+# The worked example shown by `qreals twin --help`. Built from the live
+# computation so the help text can never drift from the tool; the test suite
+# runs the command and asserts the output matches this block byte for byte.
+def _twin_help_epilog() -> str:
+    import textwrap
+
+    payload = json.dumps(compute_twin(3, 7)["data"], indent=2)
+    return (
+        "worked example:\n\n"
+        "  $ qreals twin 3/7 --json\n"
+        + textwrap.indent(payload, "  ")
+        + "\n"
+    )
+
+
 # The worked example shown by `qreals bricks --help`. Built from the live
 # computation so the help text can never drift from the tool; the test suite
 # runs the command and asserts the output matches this block byte for byte.
@@ -3400,6 +3572,33 @@ def _build_parser() -> argparse.ArgumentParser:
         "index e, e.g. 5/12 12 or 5 12 12",
     )
     add_json(p_why)
+
+    p_twin = sub.add_parser(
+        "twin",
+        help="fractions sharing the q-denominator S of [a/d]_q: the class at d "
+        "paired under a -> -a^{-1} mod d, or --across other moduli",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_twin_help_epilog(),
+    )
+    p_twin.add_argument(
+        "fraction",
+        nargs="+",
+        help="the rational a/d, as one token 31/169 or two tokens 31 169",
+    )
+    p_twin.add_argument(
+        "--same-d",
+        action="store_true",
+        help="search the same modulus d for shared S (the default)",
+    )
+    p_twin.add_argument(
+        "--across",
+        type=int,
+        default=None,
+        metavar="DMAX",
+        help="search every modulus up to DMAX for an S matching up to a unit "
+        "power of q (the range is declared in the output)",
+    )
+    add_json(p_twin)
 
     p_bricks = sub.add_parser(
         "bricks",
@@ -3808,6 +4007,9 @@ def _run_headless(args: argparse.Namespace) -> int:
             e = int(tokens[-1])
             a, b = _parse_rational(" ".join(tokens[:-1]).replace(" ", "/"))
             result = compute_why(a, b, e)
+        elif args.command == "twin":
+            a, b = _parse_rational(" ".join(args.fraction).replace(" ", "/"))
+            result = compute_twin(a, b, across=args.across)
         elif args.command == "bricks":
             if args.tex:
                 from .bricks import bricks_card, card_tex, parse_lcm_subset
