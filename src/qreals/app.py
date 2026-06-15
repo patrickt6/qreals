@@ -1153,6 +1153,166 @@ def compute_conj(name: str | None = None, until: int | None = None) -> Result:
     }
 
 
+def compute_glue(
+    p: int | None = None,
+    exp: int = 2,
+    scan: str | None = None,
+    resume: bool = False,
+    state_file: str | None = None,
+    checkpoint_seconds: float = 60.0,
+) -> Result:
+    """Prime-power sharing-class anomaly hunter (single modulus or prime scan).
+
+    For a single prime power p^e this reports the sharing classes of more than
+    two numerators coprime to p^e, each with its numerators, their residues mod
+    p, and the square roots of minus one mod p the class sits on, then a summary
+    line of whether p^e is exceptional. With --scan a..b it walks the primes in
+    the range and tabulates each prime against its exceptional verdict and its
+    computed p mod 4 residue. Whether the exceptional primes are exactly those
+    with p == 1 (mod 4) is an open observation, stated only as checked over the
+    listed range, never as an established fact.
+    """
+    from . import formatter
+    from . import glue as glue_mod
+
+    if scan:
+        lo, hi = glue_mod.parse_scan_range(scan)
+        report = glue_mod.run_scan(
+            lo,
+            hi,
+            exp,
+            resume=resume,
+            state_file=state_file,
+            checkpoint_seconds=checkpoint_seconds,
+        )
+        primes = [r["p"] for r in report["rows"]]
+        blocks: list[dict[str, Any]] = [
+            {
+                "kind": "kv",
+                "pairs": [
+                    ("prime range", f"{lo}..{hi}"),
+                    ("exponent e", str(exp)),
+                    ("primes in range", str(len(primes))),
+                    ("checked range", report["checked_range"]),
+                ],
+            },
+            {
+                "kind": "table",
+                "columns": ["prime p", "p mod 4", "exceptional"],
+                "rows": [
+                    [str(r["p"]), str(r["p_mod_4"]), "yes" if r["exceptional"] else "no"]
+                    for r in report["rows"]
+                ],
+            },
+            {
+                "kind": "kv",
+                "pairs": [
+                    (
+                        "exceptional primes p^e",
+                        "{" + ", ".join(str(p_) for p_ in report["exceptional_primes"]) + "}"
+                        if report["exceptional_primes"]
+                        else "none",
+                    ),
+                ],
+            },
+            {
+                "kind": "note",
+                "text": (
+                    "The p mod 4 column is computed from each prime. The exceptional "
+                    "primes are those whose p^e has a sharing class of more than two "
+                    "numerators. Any association between exceptional primes and "
+                    "p == 1 (mod 4) is an observation checked only over the listed "
+                    "range and is open in general, not asserted as fact."
+                ),
+            },
+        ]
+        return {
+            "kind": "glue-scan",
+            "title": f"prime-power anomaly scan over {lo}..{hi} (modulus p^{exp})",
+            "blocks": blocks,
+            "data": report,
+        }
+
+    if p is None:
+        raise ValueError("give a prime p or use --scan a..b")
+    report = glue_mod.glue_report(p, exp)
+    data = glue_mod.report_data(report)
+    roots = report.sqrt_minus_one
+    blocks = [
+        {
+            "kind": "kv",
+            "pairs": [
+                ("prime p", str(report.p)),
+                ("exponent e", str(report.exp)),
+                ("modulus p^e", str(report.modulus)),
+                ("p mod 4", str(report.p % 4)),
+                ("checked range", data["checked_range"]),
+                (
+                    "square root of minus one mod p",
+                    formatter.congruence_ascii("i^2", "-1", report.p)
+                    + " for i in {" + ", ".join(str(r) for r in roots) + "}"
+                    if roots
+                    else "none (p is not 1 mod 4)",
+                ),
+            ],
+        }
+    ]
+    if report.classes:
+        blocks.append(
+            {
+                "kind": "table",
+                "columns": [
+                    "sharing class numerators",
+                    "residues mod p",
+                    "square root of minus one",
+                ],
+                "rows": [
+                    [
+                        glue_mod.numerators_ascii(c),
+                        glue_mod.residues_ascii(c),
+                        glue_mod.sqrt_minus_one_ascii(c),
+                    ]
+                    for c in report.classes
+                ],
+            }
+        )
+    else:
+        blocks.append(
+            {
+                "kind": "note",
+                "text": (
+                    "no sharing class of more than two numerators in the checked "
+                    "range; every class is the generic pair {a, -a^{-1} mod p^e}."
+                ),
+            }
+        )
+    blocks.append(
+        {
+            "kind": "kv",
+            "pairs": [("exceptional", "yes" if report.exceptional else "no")],
+        }
+    )
+    blocks.append(
+        {
+            "kind": "note",
+            "text": (
+                "A sharing class collects the numerators coprime to p^e with the "
+                "same denominator S; a class of more than two is the anomaly, and "
+                "each such class sits on a square root of minus one mod p. That the "
+                "exceptional prime powers line up with p == 1 (mod 4) is an "
+                "observation checked over this range, open in general, not asserted "
+                "as fact."
+            ),
+        }
+    )
+    return {
+        "kind": "glue",
+        "title": f"prime-power anomaly at modulus {report.modulus} = {report.p}^{report.exp}",
+        "blocks": blocks,
+        "data": data,
+    }
+
+
 def _t_set_str(indices: list[int]) -> str:
     """Render a cyclotomic index set T as {k, ...} or 'empty'."""
     return "{" + ", ".join(str(k) for k in indices) + "}" if indices else "empty"
@@ -2312,6 +2472,24 @@ def _prompt_conj(qst: Any) -> dict[str, Any] | None:
     return {"name": name, "until": until}
 
 
+def _prompt_glue(qst: Any) -> dict[str, Any] | None:
+    scan = qst.text(
+        "scan a prime range a..b (empty for a single prime)", default=""
+    ).ask()
+    if scan is None:
+        return None
+    scan = scan.strip()
+    exp = _ask_int(qst, "exponent e", "2", low=1)
+    if exp is None:
+        return None
+    if scan:
+        return {"scan": scan, "exp": exp}
+    p = _ask_int(qst, "prime p", "13", low=2)
+    if p is None:
+        return None
+    return {"p": p, "exp": exp}
+
+
 def _prompt_check(qst: Any) -> dict[str, Any] | None:
     answer = qst.text("claims directory", default="claims").ask()
     if answer is None or not answer.strip():
@@ -2647,6 +2825,15 @@ CAPABILITIES: list[Capability] = [
         "the registry; survivors report range, count, and nearest misses",
         _prompt_conj,
         compute_conj,
+    ),
+    Capability(
+        "glue",
+        "Prime-power sharing-class anomaly hunter",
+        "at p^e, the sharing classes of more than two numerators with their "
+        "residues mod p and the square root of minus one; --scan tabulates a "
+        "prime range against the exceptional verdict and p mod 4",
+        _prompt_glue,
+        compute_glue,
     ),
     Capability(
         "check",
@@ -3448,6 +3635,21 @@ def _conj_help_epilog() -> str:
     )
 
 
+# The worked example shown by `qreals glue --help`. Built from the live
+# computation so the help text can never drift from the tool; the test suite
+# runs the command and asserts the output matches this block byte for byte.
+def _glue_help_epilog() -> str:
+    import textwrap
+
+    payload = json.dumps(compute_glue(13)["data"], indent=2)
+    return (
+        "worked example:\n\n"
+        "  $ qreals glue 13 --json\n"
+        + textwrap.indent(payload, "  ")
+        + "\n"
+    )
+
+
 def _check_help_epilog() -> str:
     import textwrap
 
@@ -3690,6 +3892,46 @@ def _build_parser() -> argparse.ArgumentParser:
         help="checkpoint interval in seconds (default 60)",
     )
     add_json(p_conj)
+
+    p_glue = sub.add_parser(
+        "glue",
+        help="prime-power sharing-class anomaly hunter: classes of more than "
+        "two numerators at p^e, or a --scan over a prime range",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_glue_help_epilog(),
+    )
+    p_glue.add_argument(
+        "p", type=int, nargs="?", default=None, help="the prime p, e.g. 13"
+    )
+    p_glue.add_argument(
+        "--exp", type=int, default=2, metavar="E", help="the exponent e (default 2)"
+    )
+    p_glue.add_argument(
+        "--scan",
+        default=None,
+        metavar="A..B",
+        help="iterate the primes in a..b, tabulating p vs exceptional with a "
+        "p mod 4 column (overrides the single-prime mode)",
+    )
+    p_glue.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue a checkpointed scan from its state file",
+    )
+    p_glue.add_argument(
+        "--state",
+        default=None,
+        metavar="FILE",
+        help="state file for scan checkpoints (defaults to the per-user data dir)",
+    )
+    p_glue.add_argument(
+        "--checkpoint-seconds",
+        type=float,
+        default=60.0,
+        metavar="S",
+        help="checkpoint interval in seconds (default 60)",
+    )
+    add_json(p_glue)
 
     p_check = sub.add_parser(
         "check",
@@ -4246,6 +4488,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_serve(args)
     if args.command == "conj":
         return _run_conj(args)
+    if args.command == "glue":
+        return _run_glue(args)
     if args.command == "check":
         return _run_check(args)
     return _run_headless(args)
@@ -4333,6 +4577,40 @@ def _run_conj(args: argparse.Namespace) -> int:
     else:
         print("\n".join(conj_mod.report_lines(report)))
     return 0 if report["survived"] else 1
+
+
+def _run_glue(args: argparse.Namespace) -> int:
+    """Run the prime-power anomaly hunter (single modulus or prime scan).
+
+    Human and JSON renderings come from the same computed object (G0.7). A scan
+    prints the deterministic table first, then per-prime timing and the total
+    wall time on their own lines, so the feasible range is visible (G7.3) while
+    the deterministic part stays byte-identical across runs and resumes.
+    """
+    if args.p is None and not args.scan:
+        print("error: give a prime p or --scan a..b", file=sys.stderr)
+        return 2
+    try:
+        result = compute_glue(
+            p=args.p,
+            exp=args.exp,
+            scan=args.scan,
+            resume=args.resume,
+            state_file=args.state,
+            checkpoint_seconds=args.checkpoint_seconds,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(result["data"], indent=2))
+        return 0
+    render_result(result, _make_console(), as_json=False, verify_result=False)
+    if args.scan:
+        for t in result["data"]["timings"]:
+            print(f"timing: p = {t['p']}  {t['seconds']:.4f} s")
+        print(f"wall time: {result['data']['wall_time_seconds']:.2f} s")
+    return 0
 
 
 def _run_serve(args: argparse.Namespace) -> int:
