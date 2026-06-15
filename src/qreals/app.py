@@ -632,6 +632,88 @@ def compute_denom(a: int, b: int) -> Result:
     }
 
 
+def compute_why(a: int, b: int, e: int) -> Result:
+    """The exact divisibility microscope of S(q) at one cyclotomic index e.
+
+    The verdict is whether the cyclotomic polynomial of index e divides the
+    denominator S(q) of [a/d]_q over Z[q]; the trace replays the q-continuant
+    recurrence at q = zeta_e, each partial denominator S_k carried as an
+    integer coefficient vector in the power basis 1, zeta_e, ..., zeta_e^{m-1}
+    (m = phi(e)). The final value is the zero vector exactly when the verdict
+    is positive; a determinant identity is shown as a sanity row.
+    """
+    from . import formatter
+    from . import why as why_mod
+
+    p = why_mod.why_dossier(a, b, e)
+    data = why_mod.why_data(p)
+
+    blocks: list[dict[str, Any]] = [
+        {
+            "kind": "kv",
+            "pairs": [
+                ("fraction in lowest terms", f"{p.a}/{p.d}"),
+                ("cyclotomic index e", str(p.e)),
+                ("verdict", why_mod.verdict_line(p)),
+                ("power basis of Z[zeta_e]", why_mod.basis_line(p)),
+            ],
+        },
+        {
+            "kind": "table",
+            "columns": [
+                "step k",
+                "CF entry a_k",
+                "S_k(zeta_e) vector",
+                "S_k(zeta_e) in basis",
+            ],
+            "rows": [
+                [
+                    str(s.k),
+                    str(s.cf_entry),
+                    formatter.zeta_vector_ascii(s.vector),
+                    formatter.zeta_element_ascii(s.vector, p.e),
+                ]
+                for s in p.trace
+            ],
+        },
+        {
+            "kind": "kv",
+            "pairs": [
+                (
+                    "final value S(zeta_e)",
+                    f"{formatter.zeta_vector_ascii(p.final_vector)}  = "
+                    f"{formatter.zeta_element_ascii(p.final_vector, p.e)}",
+                ),
+                (
+                    "determinant det M(zeta_e)",
+                    formatter.zeta_vector_ascii(p.det_vector),
+                ),
+                (
+                    "determinant closed form (-1)^n zeta_e^E",
+                    formatter.zeta_vector_ascii(p.det_closed_vector),
+                ),
+                ("determinant identity holds", "yes" if p.det_ok else "no"),
+            ],
+        },
+        {
+            "kind": "note",
+            "text": (
+                "the verdict is positive exactly when the final vector is zero, "
+                "that is when zeta_e is a root of S, equivalently the cyclotomic "
+                "polynomial of index e divides S over Z[q]. Every value is an exact "
+                "integer vector in the declared power basis, reproducible by hand; "
+                "e need not divide d."
+            ),
+        },
+    ]
+    return {
+        "kind": "why",
+        "title": f"divisibility of S(q) of [{p.a}/{p.d}]_q at index e = {p.e}",
+        "blocks": blocks,
+        "data": data,
+    }
+
+
 def compute_bricks(
     n: int, lcm_subset: str | None = None, at: str | None = None
 ) -> Result:
@@ -2013,6 +2095,21 @@ def _prompt_denom(qst: Any) -> dict[str, Any] | None:
     return {"a": a, "b": b}
 
 
+def _prompt_why(qst: Any) -> dict[str, Any] | None:
+    answer = qst.text(
+        "rational a/d  (for example 5/12)",
+        default="5/12",
+        validate=_validate_rational,
+    ).ask()
+    if answer is None:
+        return None
+    a, b = _parse_rational(answer.strip())
+    e = _ask_int(qst, "cyclotomic index e", "12", low=1)
+    if e is None:
+        return None
+    return {"a": a, "b": b, "e": e}
+
+
 def _prompt_bricks(qst: Any) -> dict[str, Any] | None:
     n = _ask_int(qst, "integer n", "12", low=1)
     if n is None:
@@ -2358,6 +2455,15 @@ CAPABILITIES: list[Capability] = [
         "(FULL/COLLAPSE/REPEATED/NONCYC), and every coprime-split discrepancy",
         _prompt_denom,
         compute_denom,
+    ),
+    Capability(
+        "why",
+        "Divisibility of S(q) at one index e",
+        "exact verdict whether the cyclotomic polynomial of index e divides S, "
+        "with the recurrence trace at the e-th root of unity carried as integer "
+        "coefficient vectors in the power basis",
+        _prompt_why,
+        compute_why,
     ),
     Capability(
         "bricks",
@@ -3123,6 +3229,21 @@ def _denom_help_epilog() -> str:
     )
 
 
+# The worked example shown by `qreals why --help`. Built from the live
+# computation so the help text can never drift from the tool; the test suite
+# runs the command and asserts the output matches this block byte for byte.
+def _why_help_epilog() -> str:
+    import textwrap
+
+    payload = json.dumps(compute_why(5, 12, 12)["data"], indent=2)
+    return (
+        "worked example:\n\n"
+        "  $ qreals why 5/12 12 --json\n"
+        + textwrap.indent(payload, "  ")
+        + "\n"
+    )
+
+
 # The worked example shown by `qreals bricks --help`. Built from the live
 # computation so the help text can never drift from the tool; the test suite
 # runs the command and asserts the output matches this block byte for byte.
@@ -3264,6 +3385,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="emit the TeX block of the dossier (compiles standalone)",
     )
     add_json(p_denom)
+
+    p_why = sub.add_parser(
+        "why",
+        help="exact divisibility of S(q) at one cyclotomic index e, with the "
+        "recurrence trace at the e-th root of unity",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_why_help_epilog(),
+    )
+    p_why.add_argument(
+        "fraction",
+        nargs="+",
+        help="the rational a/d (one token 5/12 or two tokens 5 12) then the "
+        "index e, e.g. 5/12 12 or 5 12 12",
+    )
+    add_json(p_why)
 
     p_bricks = sub.add_parser(
         "bricks",
@@ -3663,6 +3799,15 @@ def _run_headless(args: argparse.Namespace) -> int:
                 print(dossier_tex(denom_dossier(a, b)))
                 return 0
             result = compute_denom(a, b)
+        elif args.command == "why":
+            tokens = list(args.fraction)
+            if len(tokens) < 2:
+                raise ValueError(
+                    "give a fraction and an index e, e.g. 5/12 12 or 5 12 12"
+                )
+            e = int(tokens[-1])
+            a, b = _parse_rational(" ".join(tokens[:-1]).replace(" ", "/"))
+            result = compute_why(a, b, e)
         elif args.command == "bricks":
             if args.tex:
                 from .bricks import bricks_card, card_tex, parse_lcm_subset

@@ -61,6 +61,45 @@ def zeta_label(e: int) -> str:
     return f"{_ZETA_PREFIX}{int(e)}"
 
 
+def zeta_power(e: int, k: int) -> str:
+    """The basis monomial zeta_e^k (1 for k = 0, zeta_e for k = 1)."""
+    e, k = int(e), int(k)
+    if k == 0:
+        return "1"
+    if k == 1:
+        return zeta_label(e)
+    return f"{zeta_label(e)}^{k}"
+
+
+def zeta_basis_ascii(e: int, m: int) -> str:
+    """The declared power basis 1, zeta_e, ..., zeta_e^{m-1} of Z[zeta_e]."""
+    return ", ".join(zeta_power(e, k) for k in range(int(m)))
+
+
+def zeta_vector_ascii(vec: list[int]) -> str:
+    """An integer coefficient vector against the power basis, as [c0, c1, ...]."""
+    return "[" + ", ".join(str(int(c)) for c in vec) + "]"
+
+
+def zeta_element_ascii(vec: list[int], e: int) -> str:
+    """An element of Z[zeta_e] written out in the power basis from its vector."""
+    pieces: list[str] = []
+    for k, c in enumerate(vec):
+        c = int(c)
+        if c == 0:
+            continue
+        mono = zeta_power(e, k)
+        if k == 0:
+            body = str(abs(c))
+        else:
+            body = mono if abs(c) == 1 else f"{abs(c)}*{mono}"
+        if not pieces:
+            pieces.append(body if c > 0 else f"-{body}")
+        else:
+            pieces.append(("- " if c < 0 else "+ ") + body)
+    return " ".join(pieces) if pieces else "0"
+
+
 def fraction_layout(num: str, den: str) -> str:
     """A fraction rendered on one line as num / den, parenthesised as needed."""
 
