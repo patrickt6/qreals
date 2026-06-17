@@ -36,6 +36,8 @@ module's dossier; keys are stable):
     multiplicities  {str(e): int}  exponent of each cyclotomic index in S
     noncyclotomic_cofactor  str | null   the factored non-cyclotomic part
     is_cyclotomic_product   bool
+    saturation_index, minimal_saturating_n  int | null   e* = lcm(T), the
+                            minimal n with S | [n]_q (null when S divides none)
     deg_S, deg_bound        int   deg S and d - 1
     S_at_1          int   S(1), always d
     S_at_1_ok       bool
@@ -51,7 +53,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
-from math import gcd
+from math import gcd, lcm
 
 import sympy as sp
 
@@ -111,6 +113,23 @@ class DenomDossier:
     @property
     def S_at_1(self) -> int:
         return int(self.S.eval(1))
+
+    @property
+    def saturation_index(self) -> int | None:
+        """e* = lcm(T), the minimal n with S | [n]_q, or None.
+
+        Defined only when S is a squarefree product of cyclotomics (FULL or
+        COLLAPSE): then S | [n]_q iff every e in T divides n iff lcm(T) | n,
+        so the least saturating n is lcm(T). A repeated cyclotomic factor
+        (REPEATED) or a non-cyclotomic cofactor (NONCYC) divides no [n]_q, so
+        no n saturates and this is None.
+        """
+        if not self.is_cyclotomic_product:
+            return None
+        if any(m > 1 for m in self.multiplicities.values()):
+            return None
+        idx = self.index_set
+        return lcm(*idx) if idx else 1
 
 
 def cf_str(cf: list[int]) -> str:
@@ -357,6 +376,12 @@ def dossier_tex(dossier: DenomDossier) -> str:
         rf"S(q) &= {formatter.poly_tex(p.S.as_expr())} \\",
         rf"S(q) &= {s_factored_tex(p)} \\",
         rf"\deg S &= {p.deg_S}, \quad d - 1 = {p.d - 1}, \quad S(1) = {p.S_at_1} \\",
+        (
+            rf"e^\ast = \operatorname{{lcm}}(T) &= {p.saturation_index} "
+            r"\quad (\text{minimal } n \text{ with } S \mid [n]_q) \\"
+            if p.saturation_index is not None
+            else r"e^\ast &= \text{none} \quad (S \text{ divides no } [n]_q) \\"
+        ),
         r"\text{class} &= \text{" + p.klass + r"}, \quad "
         + formatter.congruence_tex("a^2", str((p.a * p.a) % p.d), p.d),
     ]
@@ -393,6 +418,8 @@ def dossier_data(dossier: DenomDossier) -> dict:
             )
         ),
         "is_cyclotomic_product": p.is_cyclotomic_product,
+        "saturation_index": p.saturation_index,
+        "minimal_saturating_n": p.saturation_index,
         "deg_S": p.deg_S,
         "deg_bound": p.d - 1,
         "S_at_1": p.S_at_1,

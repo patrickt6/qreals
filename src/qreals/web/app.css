@@ -34,7 +34,7 @@
     --bg-soft:#161c24; --bg-softer:#1b222c;
   }
   :root[data-theme="solarized"]{
-    /* Gate 11: --ink-faint was #93a1a1 (base1), only 2.48:1 on the cream bg —
+    /* Gate 11: --ink-faint was #93a1a1 (base1), only 2.48:1 on the cream bg -
        below the 3.0 AA floor for incidental/large text. Darkened to #788686
        (3.5:1) so faint labels (group titles, empties) stay legible. */
     /* Body --ink darkened from base00 #586e75 (4.99:1) to #4a5d64 (~6.1:1) for
@@ -54,7 +54,7 @@
     background:#ffffff; color:var(--ink);
   }
   /* Themed inputs: any field with no explicit background would fall back to the
-     browser default (white bg / black text) and break on dark — pin them to the
+     browser default (white bg / black text) and break on dark - pin them to the
      themed surface + ink. */
   input, textarea, select{background:var(--bg-soft); color:var(--ink)}
   :root[data-theme="dark"] .nav{background:rgba(15,20,25,.92)}
@@ -578,3 +578,38 @@ body{padding-bottom:0}  /* tray overlays; pages already scroll */
    to the CLI ASCII path so the content survives JS failure. */
 .noscript-note{max-width:860px;margin:18px auto;padding:12px 16px;
   border:1px solid var(--line,#d8dde3);border-radius:8px;font-size:.92rem}
+
+/* ---- cyclotomic tool: the denominator brick strip ----------------------
+   One chip per cyclotomic factor of the full [d]_q. Solid = kept by S,
+   faded = dropped, amber badge = repeated (S then divides no [n]_q). The
+   chip carries the factor Phi_e (typeset by MathJax) plus its degree and
+   value at q = 1. */
+.brick-strip{margin:14px 0 4px}
+.brick-strip-head{font-size:.86rem;color:var(--ink-faint);margin-bottom:8px}
+.brick-chips{display:flex;flex-wrap:wrap;gap:10px}
+.brick-chip{display:inline-flex;flex-direction:column;align-items:center;
+  gap:2px;min-width:62px;padding:8px 12px;border-radius:var(--radius-sm);
+  border:1px solid var(--line-strong);background:var(--bg-soft);
+  position:relative}
+.brick-chip .brick-phi{font-size:1.05rem;line-height:1}
+.brick-chip .brick-phi mjx-container{margin:0 !important}
+.brick-sub{font-family:var(--mono);font-size:.68rem;color:var(--ink-faint)}
+.brick-mult{position:absolute;top:-7px;right:-7px;background:var(--warn);
+  color:#fff;font-size:.66rem;font-weight:700;border-radius:var(--radius-pill);
+  padding:1px 6px}
+.brick-kept{border-color:var(--good);background:var(--good-soft)}
+.brick-kept .brick-phi{color:var(--good-ink)}
+.brick-dropped{opacity:.5;border-style:dashed}
+.brick-repeated{border-color:var(--warn);background:var(--warn-soft)}
+.brick-extra{border-color:var(--accent);background:var(--accent-soft)}
+.brick-legend{display:flex;gap:16px;margin-top:9px;font-size:.76rem;
+  color:var(--ink-faint)}
+.brick-legend .bl{display:inline-flex;align-items:center;gap:5px}
+.brick-legend .bsw{width:12px;height:12px;border-radius:3px;
+  border:1px solid var(--line-strong);display:inline-block}
+.brick-legend .bsw-kept{background:var(--good-soft);border-color:var(--good)}
+.brick-legend .bsw-dropped{background:var(--bg-soft);border-style:dashed}
+.brick-legend .bsw-repeated{background:var(--warn-soft);border-color:var(--warn)}
+.lattice-link{margin:12px 0 2px;font-size:.9rem}
+.lattice-link a{color:var(--accent);text-decoration:none;font-weight:600}
+.lattice-link a:hover{color:var(--accent-dark);text-decoration:underline}

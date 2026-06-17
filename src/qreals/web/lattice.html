@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>brick lattice explorer</title>
+<!-- Fonts come from the injected shared app.css and the vendored MathJax,
+     never a CDN, so the page renders fully offline. -->
 <script>
 window.MathJax = {
   tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
@@ -14,103 +16,154 @@ window.MathJax = {
 <!-- MathJax is vendored under web/vendor/ and served locally, so the page,
      including all math and fonts, renders with no network access. -->
 <script id="MathJax-script" async src="/vendor/mathjax/es5/tex-chtml.js"></script>
+<!-- The shared app.css is injected into the next style block by the server so
+     this page wears the same design tokens, fonts, and components as the
+     calculator. The block after it adds only the lattice-specific pieces
+     (board, nodes, edges). -->
+<style>__CSS__</style>
 <style>
-:root {
-  --ink: #1b2330; --muted: #5b6678; --line: #d8dee8; --bg: #f7f8fa;
-  --card: #ffffff; --accent: #2456a6; --faded: #aab3c2; --badge: #b3541e;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-        Helvetica, Arial, sans-serif;
-}
-.wrap { max-width: 1180px; margin: 0 auto; padding: 18px; }
-h1 { font-size: 21px; margin: 0 0 4px; }
-.caption { color: var(--muted); margin: 0 0 14px; }
-.controls {
-  display: flex; flex-wrap: wrap; gap: 14px; align-items: end;
-  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-  padding: 12px 14px; margin-bottom: 14px;
-}
-.controls label { display: block; font-size: 12px; color: var(--muted); }
-.controls input[type=text] {
-  width: 110px; padding: 6px 8px; border: 1px solid var(--line);
-  border-radius: 6px; font: inherit;
-}
-.controls input[type=range] { width: 260px; }
-.ctl { display: flex; flex-direction: column; gap: 3px; }
-.status { color: #8a2d2d; min-height: 1.2em; font-size: 13px; margin: 0 0 10px; }
-.banner, .notice {
-  border: 1px solid #d8c27a; background: #fdf6dd; border-radius: 8px;
-  padding: 10px 12px; margin: 0 0 12px;
-}
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; }
-@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
-.board, .panel {
-  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-  padding: 12px;
-}
-#lattice { position: relative; min-height: 420px; }
-#edgeSvg { position: absolute; inset: 0; width: 100%; height: 100%; }
-#edgeSvg line { stroke: var(--line); stroke-width: 1.5; }
-.node {
-  position: absolute; transform: translate(-50%, -50%);
-  border: 2px solid var(--accent); border-radius: 8px; background: #eef3fb;
-  padding: 4px 10px; min-width: 52px; text-align: center;
-}
-.node .e-label { display: block; font-size: 11px; color: var(--muted); }
-.node.dropped { border-color: var(--faded); background: #f3f4f7; opacity: 0.45; }
-.node.none { border-color: var(--faded); background: #f3f4f7; }
-.node.repeated { border-color: var(--badge); }
-.node .mult-badge {
-  position: absolute; top: -10px; right: -10px; background: var(--badge);
-  color: #fff; border-radius: 999px; font-size: 11px; padding: 1px 7px;
-}
-table.divtable { border-collapse: collapse; width: 100%; }
-table.divtable th, table.divtable td {
-  border: 1px solid var(--line); padding: 5px 9px; text-align: left;
-}
-.panel h2 { font-size: 15px; margin: 0 0 8px; }
-.panel .row { padding: 6px 0; border-bottom: 1px solid var(--line); }
-.panel .row:last-child { border-bottom: none; }
-.panel .rlabel { font-size: 11px; color: var(--muted); display: block; }
-.panel .rmathline { overflow-x: auto; }
-.rtext-wrap { margin-top: 12px; }
-.rtext-head { display: flex; justify-content: space-between; align-items: center; }
-.rtext-head .rlabel { font-size: 11px; color: var(--muted); }
-pre.rtext {
-  background: #f3f4f7; border: 1px solid var(--line); border-radius: 6px;
-  padding: 8px; overflow-x: auto; font-size: 12px;
-}
-button.mini {
-  font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 6px;
-  border: 1px solid var(--line); background: var(--card); cursor: pointer;
-}
-.noscript-note {
-  border: 1px solid #d8c27a; background: #fdf6dd; border-radius: 8px;
-  padding: 10px 12px; margin: 0 0 12px;
-}
-.legend { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
-a.backlink { color: var(--accent); }
+  /* Lattice-specific styles, built on the shared app tokens. */
+  .lat-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:26px;
+    align-items:start;margin-top:18px}
+  @media (max-width:900px){.lat-layout{grid-template-columns:1fr}}
+
+  .board{background:var(--bg);border:1px solid var(--line);border-radius:14px;
+    padding:20px;box-shadow:var(--shadow)}
+
+  #lattice{position:relative;min-height:420px}
+  #edgeSvg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+  #edgeSvg line{stroke:var(--line-strong);stroke-width:1.6;
+    vector-effect:non-scaling-stroke;stroke-linecap:round}
+
+  .node{position:absolute;transform:translate(-50%,-50%);border:1.5px solid var(--line-strong);
+    border-radius:10px;background:var(--bg);box-shadow:var(--shadow);
+    padding:7px 12px;min-width:56px;text-align:center;font-family:var(--sans)}
+  .node mjx-container{margin:0 !important}
+  .node .e-label{display:block;font-size:.66rem;font-weight:600;letter-spacing:.03em;
+    color:var(--ink-faint);margin-top:2px}
+  /* kept: a solid, accepted brick -> green, mirroring the calculator chips. */
+  .node.kept{border-color:#9ecdb1;background:var(--good-soft)}
+  .node.kept .e-label{color:var(--good-ink)}
+  /* dropped: not in S(q) -> faded, dashed. */
+  .node.dropped{border-style:dashed;border-color:var(--line-strong);
+    background:var(--bg-soft);opacity:.5;box-shadow:none}
+  /* repeated: divides S more than once -> amber accent + multiplicity badge. */
+  .node.repeated{border-color:#e0b56b;background:var(--warn-soft)}
+  .node.none{border-style:dashed;border-color:var(--line-strong);
+    background:var(--bg-soft);box-shadow:none}
+  .node .mult-badge{position:absolute;top:-9px;right:-9px;background:var(--warn);
+    color:#fff;border-radius:var(--radius-pill);font-size:.68rem;font-weight:700;
+    padding:1px 7px;box-shadow:var(--shadow)}
+
+  .legend{display:flex;flex-wrap:wrap;gap:7px 18px;align-items:center;
+    margin:18px 0 0;padding-top:14px;border-top:1px solid var(--line);
+    font-family:var(--sans);font-size:.82rem;color:var(--ink-soft)}
+  .legend .lg{display:inline-flex;align-items:center;gap:7px}
+  .legend .sw{width:16px;height:13px;border-radius:4px;display:inline-block;flex:none;
+    border:1.5px solid var(--line-strong)}
+  .legend .sw-kept{background:var(--good-soft);border-color:#9ecdb1}
+  .legend .sw-dropped{background:var(--bg-soft);border-style:dashed}
+  .legend .sw-repeated{background:var(--warn-soft);border-color:#e0b56b}
+  .legend .lg-note{color:var(--ink-faint)}
+
+  /* The control bar reuses the app field look. */
+  .controls{display:flex;flex-wrap:wrap;gap:18px;align-items:end;
+    background:var(--bg);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px;box-shadow:var(--shadow)}
+  .ctl{display:flex;flex-direction:column;gap:5px}
+  .ctl label{font-family:var(--sans);font-size:.72rem;font-weight:600;
+    text-transform:uppercase;letter-spacing:.03em;color:var(--ink-faint)}
+  .ctl input[type=text]{width:120px;font-family:var(--mono);font-size:.96rem;
+    padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;
+    background:var(--bg-soft);color:var(--ink)}
+  .ctl input[type=text]:focus{outline:none;border-color:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-soft)}
+  .ctl input[type=range]{width:240px;accent-color:var(--accent)}
+  .ctl.go-ctl{margin-left:auto}
+
+  .status{color:var(--err);min-height:1.2em;font-size:.86rem;margin:12px 0 0;
+    font-family:var(--sans)}
+  .banner,.notice{border:1px solid #e0cf8f;background:var(--warn-soft);
+    border-radius:10px;padding:11px 14px;margin:14px 0 0;font-size:.9rem;
+    font-family:var(--sans);color:var(--warn)}
+
+  /* Dossier panel: a clean label/value list, like the calculator result rows. */
+  .panel h2{font-family:var(--sans);font-size:1.22rem;font-weight:700;margin:0 0 14px}
+  /* Stacked rows: the label sits above its value so wide display-math always
+     gets the full panel width and never clips. */
+  dl.dossier{margin:0}
+  dl.dossier dt{font-family:var(--sans);font-size:.72rem;font-weight:600;
+    text-transform:uppercase;letter-spacing:.03em;color:var(--ink-faint);
+    margin:0 0 2px}
+  dl.dossier dd{margin:0 0 12px;padding-bottom:11px;
+    border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden}
+  dl.dossier dd:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none}
+  dl.dossier dd::-webkit-scrollbar{display:none}
+  dl.dossier dd{scrollbar-width:none}
+  dl.dossier dd mjx-container{margin:0 !important}
+
+  .splits{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+  .splits .splits-head{font-family:var(--sans);font-size:.72rem;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);margin:0 0 10px}
+  .splits .split-row{margin:0 0 9px}
+  .splits .split-row:last-child{margin-bottom:0}
+  .splits .split-label{display:block;font-family:var(--sans);font-size:.72rem;
+    color:var(--ink-faint);margin-bottom:2px}
+  .splits .split-math{overflow-x:auto;overflow-y:hidden}
+  .splits .split-math::-webkit-scrollbar{display:none}
+  .splits .split-math{scrollbar-width:none}
+
+  .rtext-details{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+  .rtext-details summary{display:flex;align-items:center;justify-content:space-between;
+    gap:10px;cursor:pointer;font-family:var(--sans);font-size:.74rem;font-weight:700;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);
+    list-style:none}
+  .rtext-details summary::-webkit-details-marker{display:none}
+  pre.rtext{font-family:var(--mono);font-size:.78rem;line-height:1.5;
+    background:var(--bg-soft);border:1px solid var(--line);border-radius:8px;
+    padding:12px 14px;overflow-x:auto;margin:10px 0 0;white-space:pre-wrap;
+    word-break:break-word}
+
+  table.divtable{border-collapse:collapse;width:100%;font-family:var(--sans)}
+  table.divtable th,table.divtable td{border:1px solid var(--line);padding:7px 10px;
+    text-align:left}
+  table.divtable th{font-size:.74rem;text-transform:uppercase;letter-spacing:.03em;
+    color:var(--ink-faint);background:var(--bg-soft)}
+
+  .noscript-note{border:1px solid #e0cf8f;background:var(--warn-soft);border-radius:10px;
+    padding:12px 16px;margin:0 0 16px;font-family:var(--sans)}
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="/" aria-label="qreals home">
+      <span class="mark">q<sub>q</sub></span><span>qreals</span>
+    </a>
+    <span class="nav-spacer"></span>
+    <a class="nav-saved" href="/">&larr; Calculator</a>
+  </div>
+</nav>
+
+<main class="wrap">
 
 <noscript>
   <div class="noscript-note">
     <p><b>JavaScript is off, so the lattice cannot be drawn in this page.</b>
     The same dossier is available as plain text from the command line: run
-    <code>qreals denom a/d</code> in a terminal.</p>
+    <code style="font-family:var(--mono)">qreals denom a/d</code> in a terminal.</p>
   </div>
 </noscript>
 
-<h1>Brick lattice explorer</h1>
-<p class="caption">The divisor lattice of d, each node the cyclotomic brick
-\(\Phi_e\) for a divisor \(e \ge 2\), marked kept, dropped, or repeated in the
-denominator \(S(q)\) of \(\left[\tfrac{a}{d}\right]_q\). Default example:
-d = 60. <a class="backlink" href="/">calculator home</a></p>
+<div class="page-head">
+  <span class="eyebrow">Explorer</span>
+  <h1>Brick lattice</h1>
+  <p class="lede caption">The divisor lattice of d, each node the cyclotomic
+  brick \(\Phi_e\) for a divisor \(e \ge 2\), marked kept, dropped, or repeated
+  in the denominator \(S(q)\) of \(\left[\tfrac{a}{d}\right]_q\). Default
+  example: d = 60.</p>
+</div>
 
 <div class="controls">
   <div class="ctl">
@@ -126,42 +179,46 @@ d = 60. <a class="backlink" href="/">calculator home</a></p>
     <label for="aInput">a (direct entry)</label>
     <input type="text" id="aInput" inputmode="numeric" autocomplete="off">
   </div>
-  <div class="ctl">
-    <button class="mini" id="goBtn" type="button">Update</button>
+  <div class="ctl go-ctl">
+    <button class="go" id="goBtn" type="button" style="width:auto">Update</button>
   </div>
 </div>
 <p class="status" id="status" role="status"></p>
 <div class="banner" id="banner" hidden></div>
 <div class="notice" id="notice" hidden></div>
 
-<div class="layout">
+<div class="lat-layout">
   <div class="board">
     <div id="lattice"></div>
     <div id="divTableWrap" hidden></div>
-    <p class="legend">solid = kept in S(q), faded = dropped, badge =
-    multiplicity of a repeated factor. Left and right arrow keys step a
-    through the coprime residues.</p>
+    <div class="legend">
+      <span class="lg"><span class="sw sw-kept"></span>kept in S(q)</span>
+      <span class="lg"><span class="sw sw-dropped"></span>dropped</span>
+      <span class="lg"><span class="sw sw-repeated"></span>repeated (badge = multiplicity)</span>
+      <span class="lg lg-note">Left and right arrow keys step a through the coprime residues.</span>
+    </div>
   </div>
   <aside class="panel">
     <h2>Denominator dossier</h2>
     <div id="panelRows"></div>
-    <div class="rtext-wrap" id="textWrap" hidden>
-      <div class="rtext-head">
-        <span class="rlabel">Plain text</span>
-        <button class="mini copy-btn" id="copyBtn" type="button">Copy as text</button>
-      </div>
-      <pre class="rtext" id="panelText"></pre>
-    </div>
   </aside>
 </div>
 
-</div>
+</main>
 <script>
 "use strict";
 const DEFAULT_D = 60, DEFAULT_A = 19;
 const $ = (id) => document.getElementById(id);
 let state = { d: DEFAULT_D, a: DEFAULT_A, residues: [] };
 let inflight = null;
+
+// The lattice coordinates arrive normalised to [0, 1]; map them into a padded
+// inner band so nodes never sit on the board edge (which let the legend overlap
+// the bottom row). The same affine is applied to the SVG edge endpoints so the
+// lines stay anchored to the node centres.
+const PAD_X = 7, PAD_Y = 9; // percent of the board kept clear on each side
+const mapX = (x) => PAD_X + x * (100 - 2 * PAD_X);
+const mapY = (y) => PAD_Y + y * (100 - 2 * PAD_Y);
 
 function readUrl() {
   const p = new URLSearchParams(location.search);
@@ -235,7 +292,7 @@ function render(data) {
 }
 
 function renderLattice(data, board) {
-  const H = Math.max(420, 90 * (new Set(data.nodes.map(n => n.y)).size));
+  const H = Math.max(420, 96 * (new Set(data.nodes.map(n => n.y)).size));
   board.style.height = H + "px";
   board.innerHTML = "";
   const ns = "http://www.w3.org/2000/svg";
@@ -249,8 +306,8 @@ function renderLattice(data, board) {
     const a = pos[e1], b = pos[e2];
     if (!a || !b) continue;
     const line = document.createElementNS(ns, "line");
-    line.setAttribute("x1", a.x * 100); line.setAttribute("y1", a.y * 100);
-    line.setAttribute("x2", b.x * 100); line.setAttribute("y2", b.y * 100);
+    line.setAttribute("x1", mapX(a.x)); line.setAttribute("y1", mapY(a.y));
+    line.setAttribute("x2", mapX(b.x)); line.setAttribute("y2", mapY(b.y));
     svg.appendChild(line);
   }
   board.appendChild(svg);
@@ -259,8 +316,8 @@ function renderLattice(data, board) {
     div.className = "node " + n.state;
     div.dataset.e = String(n.e);
     div.dataset.state = n.state;
-    div.style.left = (n.x * 100) + "%";
-    div.style.top = (n.y * 100) + "%";
+    div.style.left = mapX(n.x) + "%";
+    div.style.top = mapY(n.y) + "%";
     div.innerHTML = "\\(" + n.tex + "\\)" +
       '<span class="e-label">e = ' + n.e + "</span>" +
       (n.state === "repeated"
@@ -280,25 +337,36 @@ function renderTable(data, wrap) {
 }
 
 function renderPanel(panel) {
-  const rowsEl = $("panelRows"), textWrap = $("textWrap");
+  const rowsEl = $("panelRows");
   if (!panel) {
-    rowsEl.innerHTML = "<p class='legend'>The dossier panel needs the " +
-      "lattice range of d.</p>";
-    textWrap.hidden = true;
+    rowsEl.innerHTML = "<p class='lede' style='font-size:.95rem'>The dossier " +
+      "panel needs the lattice range of d.</p>";
     return;
   }
-  let html = "";
+  let html = "<dl class='dossier'>";
   for (const r of panel.rows) {
-    html += "<div class='row'><span class='rlabel'>" + r.label +
-      "</span><div class='rmathline'>\\(" + r.tex + "\\)</div></div>";
+    html += "<dt>" + r.label + "</dt><dd>\\(" + r.tex + "\\)</dd>";
   }
-  for (const s of panel.splits) {
-    html += "<div class='row'><span class='rlabel'>split " + s.label +
-      "</span><div class='rmathline'>\\(" + s.tex + "\\)</div></div>";
+  html += "</dl>";
+  if (panel.splits && panel.splits.length) {
+    html += "<div class='splits'><p class='splits-head'>Factorisation splits</p>";
+    for (const s of panel.splits) {
+      html += "<div class='split-row'><span class='split-label'>" + s.label +
+        "</span><div class='split-math'>\\(" + s.tex + "\\)</div></div>";
+    }
+    html += "</div>";
   }
+  html += "<details class='rtext-details'><summary>Plain text" +
+    "<button class='mini copy-btn' id='copyBtn' type='button'>Copy as text</button>" +
+    "</summary><pre class='rtext' id='panelText'></pre></details>";
   rowsEl.innerHTML = html;
-  textWrap.hidden = false;
   $("panelText").textContent = panel.text;
+  const copyBtn = $("copyBtn");
+  if (copyBtn) copyBtn.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    try { await navigator.clipboard.writeText(panel.text); }
+    catch (err) { /* clipboard may be unavailable; the text stays selectable */ }
+  });
 }
 
 function stepSlider(delta) {
@@ -336,10 +404,6 @@ document.addEventListener("keydown", (ev) => {
   if (t && t.id === "aSlider") return; // the native slider already steps
   if (ev.key === "ArrowLeft") { stepSlider(-1); ev.preventDefault(); }
   if (ev.key === "ArrowRight") { stepSlider(1); ev.preventDefault(); }
-});
-$("copyBtn").addEventListener("click", async () => {
-  try { await navigator.clipboard.writeText($("panelText").textContent); }
-  catch (err) { /* clipboard may be unavailable; the text stays selectable */ }
 });
 
 readUrl();

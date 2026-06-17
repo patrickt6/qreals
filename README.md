@@ -5,6 +5,62 @@
 
 ![The qreals web app, run with `qreals serve`](https://github.com/patrickt6/qreals/releases/download/v0.1.1/image.png)
 
+## Set it up with Claude (copy and paste)
+
+You do not need to know anything about code, terminals, or installation. Open
+[Claude](https://claude.ai/code) and paste one of the prompts below. Claude does
+the whole setup for you: it figures out your computer, opens and runs the
+terminal itself, installs anything that is missing, and only stops to ask you
+one thing, where to save the files.
+
+**New here? Paste this to install qreals and learn the basics:**
+
+```text
+Install and set up the qreals package, a q-numbers calculator, from
+https://github.com/patrickt6/qreals , and do it as autonomously as you can.
+Detect my operating system yourself and use commands that work on it. Open and
+run the terminal yourself rather than asking me to; if a command is not
+recognized, switch to one that works. If a prerequisite such as Python (3.11 or
+newer) or git is missing, install it for me without making me do it by hand.
+
+The only thing to ask me first is where to save the files: suggest a sensible
+default folder and let me confirm or change it. After that, proceed on your own:
+clone the repository there, install the package, confirm the install succeeded,
+then start the web app and tell me the exact address to open in my browser and
+how to stop it later. If a step fails, fix it yourself and only involve me if
+you genuinely cannot continue without a decision from me.
+
+Once the web app is open, give me a short plain-English tour of what I can do in
+it. Then explain that for anything beyond the app I can simply ask you, right
+here in plain English, to compute q-numbers for me, and that you will do this by
+running the qreals library itself so the answers come from the package rather
+than from your own working (for example, "use qreals to compute the cyclotomic
+factorisation of 7/12 and explain what it means").
+```
+
+**Already have it? Paste this to update to the latest version:**
+
+```text
+Update my qreals package, a q-numbers calculator, to the newest version, and do
+it as autonomously as you can. Detect my operating system yourself, open and run
+the terminal yourself, and use commands that work on it; if a command is not
+recognized, switch to one that works rather than asking me to fix it.
+
+Work out on your own whether I installed it with pip or from a downloaded copy of
+the repository (https://github.com/patrickt6/qreals), and update it the right way
+for that case: either upgrade the pip package, or pull the latest copy and
+reinstall it. Confirm the new version yourself with "pip show qreals", restart
+the web app, tell me the address to open, and summarise in a line or two what is
+new. Only involve me if you genuinely cannot continue without a decision from me.
+```
+
+A one-page cheat sheet with the same steps lives in the repository as
+[`CHEATSHEET.pdf`](./CHEATSHEET.pdf), including a prompt you can paste to Claude
+if anything goes wrong. Prefer to do it by hand? The manual steps are under
+[Getting started](#getting-started) below.
+
+## What is qreals
+
 A q-number replaces an ordinary number x with a series in a variable q that
 collapses back to x at q = 1. `qreals` computes these exactly, and ships a
 browser app to explore them.
@@ -193,6 +249,8 @@ worked example:
     },
     "noncyclotomic_cofactor": null,
     "is_cyclotomic_product": true,
+    "saturation_index": 15,
+    "minimal_saturating_n": 15,
     "deg_S": 6,
     "deg_bound": 14,
     "S_at_1": 15,
@@ -325,6 +383,20 @@ worked example:
         "statement": "Whether [sqrt(D)]_q + [-sqrt(D)]_q is a finite Laurent polynomial is decided by the continued fraction period of sqrt(D).",
         "space": "non-square integers D up to N",
         "miss_metric": "shared period length between two surds with opposite finiteness verdicts (shorter = nearer)",
+        "default_until": 60
+      },
+      {
+        "name": "down-closed",
+        "statement": "The cyclotomic index set of the denominator S of a reduced fraction a/d is downward closed for indices > 1: if the index-k cyclotomic factor divides S and l > 1 divides k, then the index-l factor divides S.",
+        "space": "reduced fractions a/d up to denominator N",
+        "miss_metric": "none reported (downward closure either holds or fails per fraction; the first failure is printed in full)",
+        "default_until": 60
+      },
+      {
+        "name": "residue-law",
+        "statement": "The index-5 cyclotomic factor divides the denominator S of a reduced fraction a/d if and only if 5 divides d and a == +/-1 (mod 5); this is Byakuno, Ren and Yanagawa 2026, Corollary 3.8 part 2.",
+        "space": "reduced fractions a/d up to denominator N",
+        "miss_metric": "none reported (the law is a sharp iff; the first mismatch in either direction is printed in full)",
         "default_until": 60
       }
     ]
