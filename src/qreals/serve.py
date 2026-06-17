@@ -66,6 +66,18 @@ def _f(
 
 OPERATIONS: dict[str, dict[str, Any]] = {
     # ---- q-rationals -----------------------------------------------------
+    "cyclotomic": {
+        "name": "Cyclotomic factorisation",
+        "symbol": "[a/b]_q = q^k R/S",
+        "group": "q-rationals",
+        "blurb": "The cyclotomic anatomy of a q-rational, front and centre: "
+        "[a/b]_q fully factored as q^k R(q)/S(q) with every factor labelled "
+        "Phi_e, the denominator brick strip (kept, dropped, or repeated "
+        "relative to the full [d]_q), and the verdict (class, index set T, "
+        "saturation index e* = lcm(T), deg S vs d-1).",
+        "input_kind": _RATIONAL,
+        "fields": [_f("input", "rational a/b", "5/12")],
+    },
     "rational": {
         "name": "Exact q-rational",
         "symbol": "[p/s]_q",
@@ -102,6 +114,28 @@ OPERATIONS: dict[str, dict[str, Any]] = {
         "impossibility branch (divides no [n]_q).",
         "input_kind": _RATIONAL,
         "fields": [_f("input", "rational a/d", "5/12")],
+    },
+    "bricks": {
+        "name": "Cyclotomic card of [n]_q",
+        "symbol": "[n]_q bricks",
+        "group": "q-rationals",
+        "blurb": "The cyclotomic reference card of the q-integer [n]_q: one "
+        "brick Phi_e per divisor e >= 2 of n, with its degree phi(e), its "
+        "value at q = 1 (p for a prime power p^k, else 1), and the split of "
+        "the divisors into prime powers and composites.",
+        "input_kind": _INTEGER,
+        "fields": [_f("input", "whole number n", "12", "int")],
+    },
+    "collapse": {
+        "name": "Numerators sharing a denominator",
+        "symbol": "S-classes at d",
+        "group": "q-rationals",
+        "blurb": "The reverse table at one modulus d: the numerators a coprime "
+        "to d grouped by identical denominator S(q), each group's class, its "
+        "cyclotomic index set T, and c(d) (the count with a squarefree "
+        "cyclotomic S).",
+        "input_kind": _INTEGER,
+        "fields": [_f("input", "modulus d", "12", "int")],
     },
     "roots": {
         "name": "Roots of R(q)",
@@ -453,6 +487,9 @@ GROUP_ORDER = ["q-rationals", "Friezes", "Visuals", "q-reals", "Arithmetic", "Tr
 # the home cards and the per-operation header. (The plain "symbol" string above
 # stays as an accessible label and a fallback.)
 _TEX_SYMBOL = {
+    "cyclotomic": r"\left[\tfrac{a}{b}\right]_q = q^{k}\,\dfrac{R(q)}{S(q)}",
+    "bricks": r"[n]_q=\!\!\prod_{e\mid n,\,e\ge2}\!\!\Phi_e",
+    "collapse": r"\{\,a : S_{a/d}\ \text{shared}\,\}",
     "rational": r"\left[\tfrac{p}{s}\right]_q",
     "qint": r"[n]_q",
     "factor": r"\dfrac{R(q)}{S(q)}",
@@ -491,6 +528,38 @@ _TEX_SYMBOL = {
 # MathJax, so a newcomer can read what the tool computes and why it matters, not
 # just its one-line card summary.
 _ABOUT: dict[str, str] = {
+    "cyclotomic": (
+        r"The headline cyclotomic view of a \(q\)-rational. It writes "
+        r"\(\left[\tfrac{a}{b}\right]_q = q^{k}\,R(q)/S(q)\) with \(R(0)=1\) and "
+        r"factors both \(R\) and \(S\) over \(\mathbb{Z}[q]\), labelling every "
+        r"factor as a cyclotomic polynomial \(\Phi_e(q)\) (a root of unity) or a "
+        r"non-cyclotomic core. The denominator \(S\) is a monic polynomial with "
+        r"\(S(0)=1\) and \(S(1)=d\); the full \([d]_q=\prod_{e\mid d,\,e\ge2}"
+        r"\Phi_e\) has one brick per divisor \(e\ge2\) of \(d\), and \(S\) keeps "
+        r"a subset of them. The brick strip shows which \(\Phi_e\) are kept, "
+        r"dropped, or repeated. When \(S\) is a squarefree product of "
+        r"cyclotomics it divides \([n]_q\) exactly when the saturation index "
+        r"\(e^\star=\operatorname{lcm}(T)\) divides \(n\)."
+    ),
+    "bricks": (
+        r"The cyclotomic reference card of the \(q\)-integer "
+        r"\([n]_q = 1+q+\cdots+q^{\,n-1}\). It factors over \(\mathbb{Z}[q]\) as "
+        r"\([n]_q=\prod_{e\mid n,\,e\ge2}\Phi_e(q)\), one irreducible brick "
+        r"\(\Phi_e\) per divisor \(e\ge2\) of \(n\). Each brick has degree "
+        r"\(\varphi(e)\) (Euler's totient) and value \(p\) at \(q=1\) when "
+        r"\(e=p^k\) is a prime power, \(1\) otherwise. These are exactly the "
+        r"bricks a denominator \(S(q)\) of \([a/n]_q\) keeps a subset of."
+    ),
+    "collapse": (
+        r"At a fixed modulus \(d\), the numerators \(a\) coprime to \(d\) "
+        r"(\(1\le a<d\)) are grouped by their denominator \(S_{a/d}(q)\): two "
+        r"numerators share a group exactly when they give the same \(S\). Each "
+        r"group reports its class, its cyclotomic index set \(T\), and the "
+        r"residues of its numerators. The footer counts \(c(d)\), the number of "
+        r"numerators whose \(S\) is a squarefree product of cyclotomics. This is "
+        r"the reverse of the per-fraction view: fix \(d\), read off which "
+        r"numerators collapse together."
+    ),
     "rational": (
         r"The \(q\)-rational \(\left[\tfrac{p}{s}\right]_q\) is the "
         r"Morier-Genoud and Ovsienko \(q\)-deformation of the fraction "
@@ -1501,6 +1570,154 @@ def compute(
                 "meta": {"op": op, "n_features": len(data["values"])},
             }
 
+        if op == "cyclotomic":
+            from .cyclotomic import cyclotomic_view
+
+            v = cyclotomic_view(input_text)
+            latex = v.headline_tex
+            t_tex = (
+                r"\{" + ",\\, ".join(str(e) for e in v.index_set_T) + r"\}"
+                if v.index_set_T
+                else r"\varnothing"
+            )
+            sat_tex = (
+                str(v.saturation_index)
+                if v.saturation_index is not None
+                else r"\text{none}\ (S\nmid[n]_q\ \text{for all }n)"
+            )
+            rows = [
+                ["class of S", v.klass_label],
+                ["cyclotomic index set T", t_tex],
+                ["saturation index e* = lcm(T)  (min n with S | [n]_q)", sat_tex],
+                ["deg S  (bound d-1)", rf"{v.deg_S}\ \ (\le {v.deg_bound})"],
+                ["S(1) = d", rf"{v.S_at_1}\ (=d)"],
+                ["numerator R(q)", v.R_tex],
+                ["denominator S(q)", v.S_tex],
+            ]
+            # Every row value here is engine-generated; the math-bearing ones are
+            # typeset (rowTex), the class sentence stays plain text.
+            row_tex = {
+                "cyclotomic index set T": t_tex,
+                "saturation index e* = lcm(T)  (min n with S | [n]_q)": sat_tex,
+                "deg S  (bound d-1)": rf"{v.deg_S}\ \ (\le {v.deg_bound})",
+                "S(1) = d": rf"{v.S_at_1}\ (=d)",
+                "numerator R(q)": v.R_tex,
+                "denominator S(q)": v.S_tex,
+            }
+            bricks = [
+                {
+                    "e": b.e,
+                    "phi_tex": fmt.phi_tex(b.e),
+                    "deg": b.deg,
+                    "value_at_1": b.value_at_1,
+                    "mult": b.mult,
+                    "state": b.state,
+                }
+                for b in v.bricks
+            ]
+            return {
+                "latex": latex,
+                "text": f"[{v.a}/{v.d}]_q = q^{v.k} ({sp.sstr(v.R)})/({sp.sstr(v.S)})",
+                "rows": rows,
+                "meta": {
+                    "op": op,
+                    "a": v.a,
+                    "d": v.d,
+                    "klass": v.klass,
+                    "bricks": {"d": v.d, "qint_tex": fmt.qint_tex(v.d), "items": bricks},
+                    "lattice": {"d": v.d, "a": v.a},
+                    "rowTex": row_tex,
+                },
+            }
+
+        if op == "bricks":
+            from .bricks import bricks_card
+
+            nn = int(str(input_text).strip())
+            card = bricks_card(nn)
+            factored = r" \, ".join(fmt.phi_tex(r.e) for r in card.rows) or "1"
+            latex = "%s = %s" % (fmt.qint_tex(nn), factored)
+            pp = ", ".join(str(e) for e in card.prime_powers) or "none"
+            comp = ", ".join(str(e) for e in card.composites) or "none"
+            rows = [
+                ["prime-power divisors of n", pp],
+                ["composite divisors of n", comp],
+                ["number of bricks", str(len(card.rows))],
+            ]
+            items = [
+                {
+                    "e": r.e,
+                    "phi_tex": fmt.phi_tex(r.e),
+                    "deg": r.deg,
+                    "value_at_1": r.at_1,
+                    "mult": 1,
+                    "state": "kept",
+                }
+                for r in card.rows
+            ]
+            return {
+                "latex": latex,
+                "text": f"[{nn}]_q = "
+                + " * ".join(f"Phi_{r.e}" for r in card.rows),
+                "rows": rows,
+                "meta": {
+                    "op": op,
+                    "n": nn,
+                    "bricks": {
+                        "d": nn,
+                        "qint_tex": fmt.qint_tex(nn),
+                        "head": rf"Every cyclotomic brick of \({fmt.qint_tex(nn)}\) "
+                        "(one per divisor e ≥ 2 of n)",
+                        "items": items,
+                    },
+                },
+            }
+
+        if op == "collapse":
+            from . import collapse as _collapse
+            from . import denom as _denom
+
+            dd = int(str(input_text).strip())
+            table = _collapse.collapse_table(dd)
+            latex = (
+                r"c(%d) = %d \quad \text{out of } %d \text{ numerators } "
+                r"a\ \text{coprime to}\ %d"
+                % (dd, table.c, table.numerators_total, dd)
+            )
+            rows: list[list[str]] = []
+            row_tex: dict[str, str] = {}
+            for i, g in enumerate(table.groups, 1):
+                nums = ", ".join(str(a) for a in g.numerators)
+                t_tex = (
+                    r"\{" + ",\\, ".join(str(e) for e in g.index_set) + r"\}"
+                    if g.index_set
+                    else r"\varnothing"
+                )
+                label = f"group {i}  [{g.klass}]  a in {{{nums}}}"
+                val = r"S = %s,\quad T = %s" % (
+                    _denom.s_factored_tex(g.dossier),
+                    t_tex,
+                )
+                rows.append([label, val])
+                row_tex[label] = val
+            if table.repeated_count:
+                rows.append(
+                    ["non-squarefree numerators (divide no [n]_q)", str(table.repeated_count)]
+                )
+            if table.noncyclotomic_numerators:
+                rows.append(
+                    [
+                        "non-cyclotomic numerators (divide no [n]_q)",
+                        ", ".join(str(a) for a in table.noncyclotomic_numerators),
+                    ]
+                )
+            return {
+                "latex": latex,
+                "text": f"c({dd}) = {table.c} of {table.numerators_total}",
+                "rows": rows,
+                "meta": {"op": op, "d": dd, "c": table.c, "rowTex": row_tex},
+            }
+
         if op == "factor":
             from .factor import denominator_expr, factor_qreal, numerator_expr
 
@@ -2041,7 +2258,7 @@ def compute_certificate(
         cert = _cert.build_certificate(result)
         v = cert.referee
         # The fold recursion as proper display LaTeX (MathJax renders it like the
-        # main result), mirroring certificate._referee_tex — not the terminal ascii.
+        # main result), mirroring certificate._referee_tex - not the terminal ascii.
         recursion_tex = ""
         if v.folds:
             m = len(cert.even_cf)
@@ -2086,6 +2303,8 @@ def preview(op: str, input_text: str, args: dict[str, Any] | None = None) -> dic
             base = fmt.qrat_tex(p, s)
             if op == "jump-gap":
                 base = "%s^{+} - %s^{-}" % (fmt.qrat_tex(p, s), fmt.qrat_tex(p, s))
+            elif op == "cyclotomic":
+                base = r"%s = q^{k}\,R(q)/S(q)" % fmt.qrat_tex(p, s)
             elif op == "factor":
                 base = r"R(q),\ S(q)\ \text{of}\ %s" % fmt.qrat_tex(p, s)
             elif op == "roots":
@@ -2206,9 +2425,11 @@ def _lattice_html() -> str:
 
     A self-contained template: its math comes typeset from /lattice/data
     (server-side TeX through the shared formatter emitters) and renders with
-    the same vendored MathJax, so the page works fully offline.
+    the same vendored MathJax, so the page works fully offline. The shared
+    app.css is injected through the __CSS__ token so the page wears the same
+    design system (tokens, fonts, panels) as the calculator.
     """
-    return _asset("lattice.html")
+    return _asset("lattice.html").replace("__CSS__", _asset("app.css"))
 
 
 def _lattice_payload(d: Any, a: Any) -> dict[str, Any]:
@@ -2239,6 +2460,61 @@ _update_cache: dict[str, Any] | None = None
 # them as the "What's new" patch notes, both in the update banner and from a
 # footer link. Keep newest first.
 CHANGELOG: dict[str, dict[str, Any]] = {
+    "0.1.5": {
+        "summary": "The brick lattice page is rebuilt on the calculator's "
+        "design system.",
+        "notes": [
+            {
+                "change": r"The \(/\)lattice page now wears the shared app "
+                r"design: the same fonts, tokens, nav, and card panels as the "
+                r"calculator, with kept, dropped, and repeated nodes drawn like "
+                r"the cyclotomic brick chips.",
+                "helps": r"The divisor lattice reads as part of the app instead "
+                r"of a separate page, with thin non-overlapping edges and a "
+                r"legend that no longer collides with the nodes.",
+            },
+            {
+                "change": r"The lattice dossier stacks each label above its "
+                r"value, and the plain-text dump moved into a collapsible "
+                r"section.",
+                "helps": r"Wide display math fits the panel instead of "
+                r"clipping.",
+            },
+        ],
+    },
+    "0.1.4": {
+        "summary": "A front-and-centre cyclotomic factorisation view, plus the "
+        "brick card and reverse table in the browser.",
+        "notes": [
+            {
+                "change": r"New Cyclotomic factorisation tool: "
+                r"\(\left[\tfrac{a}{b}\right]_q=q^{k}R(q)/S(q)\) fully factored, "
+                r"with a denominator brick strip marking each \(\Phi_e\) kept, "
+                r"dropped, or repeated relative to the full \([d]_q\).",
+                "helps": r"Shows the cyclotomic anatomy of a q-rational at a "
+                r"glance, with a link to the divisor lattice.",
+            },
+            {
+                "change": r"The cyclotomic card of \([n]_q\) and the "
+                r"shared-denominator reverse table are now browser tools, not "
+                r"command line only.",
+                "helps": r"Lets you read the bricks of \([n]_q\) and see which "
+                r"numerators share a denominator without leaving the app.",
+            },
+            {
+                "change": r"The denominator dossier now reports the saturation "
+                r"index \(e^\star=\operatorname{lcm}(T)\) directly.",
+                "helps": r"Names the least \(n\) with \(S\mid[n]_q\) in one "
+                r"field.",
+            },
+            {
+                "change": r"Two more falsifiable conjectures: downward closure "
+                r"of the cyclotomic index set, and the index-5 residue law.",
+                "helps": r"Scans the literature's small-index results against "
+                r"the engine, counterexample first.",
+            },
+        ],
+    },
     "0.1.3": {
         "summary": "Denominator S(q) tools and an update checker.",
         "notes": [

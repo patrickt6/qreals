@@ -151,7 +151,7 @@ from . import oeis  # noqa: E402
 # is a lazy, optional import, so the core never pulls qprov in.
 from . import exports  # noqa: E402
 
-__version__ = "0.1.3"
+__version__ = "0.1.5"
 
 __all__ = [
     "q_rational",

@@ -446,6 +446,58 @@ def _check_negsum_period(inst: int, state: dict) -> Outcome:
     return Outcome(ok=True)
 
 
+def _check_down_closed(inst: list[int], state: dict) -> Outcome:
+    """The helping claim of current.tex 1.5.1: the cyclotomic index set of S is
+    downward closed for indices > 1. If the index-k cyclotomic factor divides S
+    and l > 1 divides k, then the index-l factor divides S. Proved for k = 4, 6
+    (so l = 2, 3) by Byakuno, Ren and Yanagawa (arXiv:2603.08439); open in
+    general; scanned here for a counterexample.
+    """
+    from .denom import denom_dossier
+
+    a, d = inst
+    p = denom_dossier(a, d)
+    present = set(p.multiplicities)
+    for k in sorted(present):
+        for l in (int(t) for t in sp.divisors(k)):
+            if 1 < l < k and l not in present:
+                return Outcome(
+                    ok=False,
+                    violates=(
+                        f"{formatter.phi_label(k)} divides S but "
+                        f"{formatter.phi_label(l)} does not, though {l} | {k}"
+                    ),
+                    dossier=_fraction_dossier_lines(a, d),
+                )
+    return Outcome(ok=True)
+
+
+def _check_residue_law(inst: list[int], state: dict) -> Outcome:
+    """Byakuno, Ren and Yanagawa Cor 3.8(2): the index-5 cyclotomic factor
+    divides the denominator S of a/d if and only if 5 | d and a == +/-1
+    (mod 5). A sharp iff (not just the divisor direction), so a single failure
+    in either direction is a counterexample. Verified here exhaustively over
+    the fraction space.
+    """
+    from .denom import denom_dossier
+
+    a, d = inst
+    p = denom_dossier(a, d)
+    has_index5 = 5 in p.multiplicities
+    predicted = (d % 5 == 0) and (a % 5 in (1, 4))
+    if has_index5 != predicted:
+        return Outcome(
+            ok=False,
+            violates=(
+                f"{formatter.phi_label(5)} | S is {has_index5}, but the law "
+                f"(5 | d and a == +/-1 mod 5) predicts {predicted} for "
+                f"a/d = {a}/{d}"
+            ),
+            dossier=_fraction_dossier_lines(a, d),
+        )
+    return Outcome(ok=True)
+
+
 # ---------------------------------------------------------------------------
 # the registry
 # ---------------------------------------------------------------------------
@@ -550,6 +602,42 @@ REGISTRY: dict[str, Conjecture] = {
             instances=_nonsquares,
             check=_check_negsum_period,
             range_label=lambda until: f"non-square integers 2 <= D <= {until}",
+        ),
+        Conjecture(
+            name="down-closed",
+            statement=(
+                "The cyclotomic index set of the denominator S of a reduced "
+                "fraction a/d is downward closed for indices > 1: if the "
+                "index-k cyclotomic factor divides S and l > 1 divides k, then "
+                "the index-l factor divides S."
+            ),
+            space="reduced fractions a/d up to denominator N",
+            miss_metric=(
+                "none reported (downward closure either holds or fails per "
+                "fraction; the first failure is printed in full)"
+            ),
+            default_until=60,
+            instances=_fractions,
+            check=_check_down_closed,
+            range_label=_fraction_range,
+        ),
+        Conjecture(
+            name="residue-law",
+            statement=(
+                "The index-5 cyclotomic factor divides the denominator S of a "
+                "reduced fraction a/d if and only if 5 divides d and a == +/-1 "
+                "(mod 5); this is Byakuno, Ren and Yanagawa 2026, Corollary "
+                "3.8 part 2."
+            ),
+            space="reduced fractions a/d up to denominator N",
+            miss_metric=(
+                "none reported (the law is a sharp iff; the first mismatch in "
+                "either direction is printed in full)"
+            ),
+            default_until=60,
+            instances=_fractions,
+            check=_check_residue_law,
+            range_label=_fraction_range,
         ),
         Conjecture(
             name="planted-degbound",

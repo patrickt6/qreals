@@ -211,7 +211,7 @@ function _bundleFromCompare(title){
 function openShareMenuFor(items, btn){ _shareItems = items; toggleShareMenu(btn); }
 async function makeShareLink(bundle){
   const enc = await _deflate(JSON.stringify(bundle));
-  if (enc.length > 1800) toast("Large bundle — prefer Download .qreals for email");
+  if (enc.length > 1800) toast("Large bundle - prefer Download .qreals for email");
   return location.origin + location.pathname + "#s=" + enc;
 }
 function _download(name, text, type){ const b = new Blob([text], {type:type||"text/plain"});
@@ -280,7 +280,7 @@ async function exportHtml(){
     const m = res && res.meta;
     const isPlot = m && (m.roots || m.eigen || m.frieze || m.plot3d || m.points || m.surface);
     const plotNote = isPlot
-      ? '<p class="note">This result includes an interactive plot — open the qreals link at the bottom to view it live.</p>'
+      ? '<p class="note">This result includes an interactive plot - open the qreals link at the bottom to view it live.</p>'
       : "";
     return '<section><h3>' + esc(tileLabel(it)) + '</h3>' +
       (res ? '\\[' + res.latex + '\\]' : '<em>could not compute</em>') +
@@ -297,7 +297,7 @@ async function exportHtml(){
     'table{border-collapse:collapse;font-size:.9rem;margin:6px 0}td{border-bottom:1px solid #eee;padding:3px 12px}' +
     '.note{color:#6b757f;font-size:.85rem}.usernote{font-style:italic;color:#475059}a{color:#2456a6}</style></head>' +
     '<body><h1>' + esc(bundle.title) + '</h1>' + secs.join("") +
-    '<p class="note">Recomputed locally by the qreals engine — not remembered values. ' +
+    '<p class="note">Recomputed locally by the qreals engine - not remembered values. ' +
     'Reproduce live: <a href="' + esc(link) + '">open in qreals</a>.</p></body></html>';
   _download("qreals-comparison.html", html, "text/html");
 }
@@ -343,7 +343,7 @@ async function receiveSharePayload(enc, fromUrl){
   $("receiveList").innerHTML = bundle.items.map((it) =>
     '<div class="receive-row"><b>' + esc(OPS[it.op] ? OPS[it.op].name : it.op) + '</b>: ' +
     esc(it.input) + (it.args && it.args.y ? ", y=" + esc(it.args.y) : "") +
-    (it.note ? ' <span class="meta">— ' + esc(it.note) + '</span>' : '') + '</div>').join("");
+    (it.note ? ' <span class="meta">- ' + esc(it.note) + '</span>' : '') + '</div>').join("");
   const b = $("receiveBackdrop"); b.classList.remove("hidden"); requestAnimationFrame(() => b.classList.add("show"));
   const close = () => { b.classList.remove("show"); setTimeout(() => b.classList.add("hidden"), 280); if (fromUrl) history.replaceState(null, "", location.pathname); };
   $("receiveReproduce").onclick = () => {
@@ -754,6 +754,49 @@ function showResult(r){
 // drives the single result panel and any number of pop-out workspace tiles at
 // once without their plots or view toggles colliding.
 // opts.actions: "main" (Save / Pop out / Copy LaTeX) or "tile" (Copy LaTeX only).
+// The cyclotomic tool ships meta.bricks: one chip per cyclotomic factor of the
+// full [d]_q (plus any extra index in S), coloured by whether S keeps, drops,
+// or repeats it. The chip carries the factor Phi_e as inline LaTeX (typeset by
+// the caller), its degree phi(e), and its value at q = 1.
+function brickTitle(it){
+  const base = "Φ_" + it.e + " (degree " + it.deg + ", value " +
+    it.value_at_1 + " at q = 1)";
+  if (it.state === "kept") return base + ": divides S once";
+  if (it.state === "dropped") return base + ": does not divide S";
+  if (it.state === "repeated") return base + ": divides S " + it.mult +
+    " times (S then divides no [n]_q)";
+  return base + ": a cyclotomic factor of S whose index does not divide d";
+}
+function bricksStripHtml(b){
+  const chips = b.items.map((it) => {
+    const mult = (it.state === "repeated")
+      ? '<span class="brick-mult">&times;' + it.mult + '</span>' : '';
+    const sub = '<span class="brick-sub">deg ' + it.deg +
+      ' &middot; @1 = ' + it.value_at_1 + '</span>';
+    return '<span class="brick-chip brick-' + it.state + '" title="' +
+      esc(brickTitle(it)) + '">' +
+      '<span class="brick-phi">\\(' + it.phi_tex + '\\)</span>' + mult + sub +
+      '</span>';
+  }).join("");
+  const head = b.head ||
+    ('Denominator bricks of the full \\(' + b.qint_tex +
+     '\\): S keeps the solid ones');
+  return '<div class="brick-strip">' +
+    '<div class="brick-strip-head">' + head + '</div>' +
+    '<div class="brick-chips">' + chips + '</div>' +
+    '<div class="brick-legend">' +
+      '<span class="bl"><span class="bsw bsw-kept"></span>kept</span>' +
+      '<span class="bl"><span class="bsw bsw-dropped"></span>dropped</span>' +
+      '<span class="bl"><span class="bsw bsw-repeated"></span>repeated</span>' +
+    '</div></div>';
+}
+function latticeLinkHtml(l){
+  return '<p class="lattice-link"><a href="/lattice?d=' +
+    encodeURIComponent(l.d) + '&a=' + encodeURIComponent(l.a) + '">' +
+    'Open the divisor lattice (Hasse diagram) for d = ' + esc(String(l.d)) +
+    ' →</a></p>';
+}
+
 function renderResultInto(root, r, opts){
   opts = opts || {};
   let html = '';
@@ -803,6 +846,10 @@ function renderResultInto(root, r, opts){
       '</p></div>';
   }
   html += '<div class="rmath">\\[' + r.latex + '\\]</div>';
+  // The cyclotomic tool draws its brick strip directly under the factored
+  // headline, then links out to the divisor-lattice (Hasse) page.
+  if (r.meta && r.meta.bricks){ html += bricksStripHtml(r.meta.bricks); }
+  if (r.meta && r.meta.lattice){ html += latticeLinkHtml(r.meta.lattice); }
   // Some results (the S(q) properties panel) ship a glossary keyed by row label;
   // those rows become click-to-explain, opening a box with a LaTeX description
   // and the values the property can take. The glossary text is trusted (from the
@@ -859,7 +906,7 @@ function renderResultInto(root, r, opts){
   }
   html += '<details class="derivation"><summary>Show the derivation</summary>' +
     '<div class="derivation-body">loading…</div></details>' +
-    '<p class="recompute-note">Computed locally by the qreals engine from your input — not a remembered value. ' +
+    '<p class="recompute-note">Computed locally by the qreals engine from your input - not a remembered value. ' +
     '<span class="prov-chip">local, unrecorded</span></p>';
   root.innerHTML = html;
   if (hasViz) setupViz(r.meta.plot3d, root);
@@ -868,6 +915,8 @@ function renderResultInto(root, r, opts){
   if (hasEigen) drawEigen(r.meta.eigen, root);
   const mathEl = root.querySelector(".rmath");
   if (mathEl) typeset(mathEl);
+  const strip = root.querySelector(".brick-strip");
+  if (strip) typeset(strip);
   // typeset any row values that carry LaTeX (meta.rowTex)
   if (rowTex){ const dl = root.querySelector("dl.rows"); if (dl) typeset(dl); }
   // click-to-explain property rows: toggle the matching info panel, close the
@@ -922,7 +971,7 @@ function renderResultInto(root, r, opts){
       body: JSON.stringify({ op: r.op, input: r.input, args: r.args || {} }) }).then((x) => x.json()).catch(() => null);
     if (!data || data.error){ body.innerHTML = '<span class="cmp-err">No step-by-step derivation for this tool.</span>'; return; }
     let h = "";
-    // headline + structure are PROSE (escaped text) — never math-wrapped, or
+    // headline + structure are PROSE (escaped text) - never math-wrapped, or
     // MathJax collapses the words. Only the real math is typeset, as display math.
     if (data.headline) h += '<p class="deriv-headline">' + esc(data.headline) + '</p>';
     if (data.recursionTex){
@@ -2516,7 +2565,7 @@ function renderSavedInto(container, full){
       .forEach((it) => store.addCompare({ op: it.op, input: it.input, args: it.args || {} }));
     renderTray(); goWorkspace();
   });
-  // Tag add/remove (full view only) — re-render this same container after a change.
+  // Tag add/remove (full view only) - re-render this same container after a change.
   container.querySelectorAll("[data-tagadd]").forEach((b) => {
     b.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -2619,7 +2668,7 @@ function updateWsCount(){
 // Workspace tiles and the bottom tray. cmpComputeRow + cmpRows + cmpTimers are
 // the retired standalone-compare path, kept only as a defensive fallback for
 // the generalized cmpBuildFields listener.
-let cmpRows = [];   // [{id, op, input, result}] — retired standalone path
+let cmpRows = [];   // [{id, op, input, result}] - retired standalone path
 const cmpTimers = {};
 
 // Compute one operation and return a result-shaped object (or null on error),
@@ -2837,7 +2886,7 @@ function goWorkspace(){
   hideAllViews();
   workspaceView.classList.remove("hidden");
   // The workspace IS the expanded compare list, so the compact bottom tray is
-  // redundant here — hide it (re-shown by renderTray on home/op views).
+  // redundant here - hide it (re-shown by renderTray on home/op views).
   $("cmpTray").classList.add("hidden");
   renderWorkspace();
   // figures sized while their section was hidden read as zero; fix on show
@@ -3081,7 +3130,7 @@ function showStartup(){
     '<span class="meta">' + (p.saved||[]).length + ' saved · ' + (p.compare||[]).length + ' compare' +
     ' <button class="mini danger profile-del" data-del="' + esc(p.id) + '">Delete</button></span>' +
     '</div>').join("")
-    : '<div class="profile-empty">No profiles yet — create one to save your work.</div>';
+    : '<div class="profile-empty">No profiles yet - create one to save your work.</div>';
   list.querySelectorAll("[data-pid]").forEach((row) =>
     row.addEventListener("click", () => enterProfile(row.dataset.pid)));
   list.querySelectorAll(".profile-del").forEach((b) => b.addEventListener("click", (e) => {

@@ -525,6 +525,75 @@ def compute_sprops(a: int, b: int) -> Result:
     }
 
 
+def compute_cyclotomic(a: int, b: int) -> Result:
+    """The headline cyclotomic factorisation of [a/b]_q: R and S as Phi-products.
+
+    This is the front-and-centre cyclotomic view: the fully factored
+    [a/b]_q = q^k R(q)/S(q) with every cyclotomic factor labelled Phi(e), the
+    brick strip of the denominator (one Phi(e) per divisor e >= 2 of d, marked
+    kept, dropped, or repeated relative to the full [d]_q), and the verdict
+    (the class of S, the index set T, the saturation index e* = lcm(T), deg S
+    against the d-1 bound, and the S(1) = d invariant).
+    """
+    from .cyclotomic import cyclotomic_view, view_data
+
+    v = cyclotomic_view((a, b))
+    data = view_data(v)
+    qk = "" if v.k == 0 else f"q^{v.k} * "
+    headline = f"{qk}({data['R']}) / ({data['S']})"
+    brick_pairs = [
+        (
+            f"{formatter.phi_label(b_.e)}  (deg {b_.deg}, value@1 = {b_.value_at_1})",
+            b_.state + ("" if b_.mult <= 1 else f" (x{b_.mult})"),
+        )
+        for b_ in v.bricks
+    ]
+    sat_str = (
+        f"n = {v.saturation_index} (minimal n with S | [n]_q)"
+        if v.saturation_index is not None
+        else "none: S divides no [n]_q"
+    )
+    t_str = (
+        "{" + ", ".join(str(e) for e in v.index_set_T) + "}"
+        if v.index_set_T
+        else "empty"
+    )
+    return {
+        "kind": "cyclotomic",
+        "title": f"cyclotomic factorisation of [{a}/{b}]_q",
+        "blocks": [
+            {"kind": "poly", "label": f"[{a}/{b}]_q", "text": headline},
+            {
+                "kind": "kv",
+                "pairs": [
+                    ("class of S", v.klass + " -- " + v.klass_label),
+                    ("cyclotomic index set T", t_str),
+                    ("saturation index e* = lcm(T)", sat_str),
+                    ("deg S", f"{v.deg_S}  (bound d-1 = {v.deg_bound})"),
+                    ("S(1) = d invariant", f"S(1) = {v.S_at_1}"),
+                ],
+            },
+            {
+                "kind": "kv",
+                "label": f"denominator bricks of [{b}]_q",
+                "pairs": brick_pairs,
+            },
+            {
+                "kind": "note",
+                "text": (
+                    "Each brick is one cyclotomic factor Phi(e) of the full "
+                    "[d]_q (one per divisor e >= 2 of d). 'kept' means Phi(e) "
+                    "divides S once, 'dropped' means it does not divide S, "
+                    "'repeated' means it divides S more than once (then S "
+                    "divides no [n]_q). S is a divisor of [d]_q exactly when "
+                    "every kept brick is squarefree."
+                ),
+            },
+        ],
+        "data": data,
+    }
+
+
 # The worked example shown by `qreals collapse --help`. Built from the live
 # computation so the help text can never drift from the tool; the test suite
 # runs the command and asserts the output matches this block byte for byte.
@@ -1308,6 +1377,78 @@ def compute_glue(
     return {
         "kind": "glue",
         "title": f"prime-power anomaly at modulus {report.modulus} = {report.p}^{report.exp}",
+        "blocks": blocks,
+        "data": data,
+    }
+
+
+def compute_witness(
+    property: str | None = None,
+    nth: int = 1,
+    where: str | None = None,
+) -> Result:
+    """The smallest reduced fraction a/d with a named property, as a dossier.
+
+    With no property (or "list") the property registry is printed. With a
+    property the search walks the reduced fractions a/d in ascending d then a
+    order, filtered by the optional --where predicate, and returns the nth
+    smallest with that property rendered as the one-shot denominator dossier
+    (the same blocks the denom tool prints), followed by one line stating the
+    ordering under which it is minimal and the range certified below it. The
+    minimality is certified, not assumed: the search visits every reduced
+    fraction at or before the witness in the order.
+    """
+    from . import witness as witness_mod
+
+    if not property or property == "list":
+        data = witness_mod.registry_data()
+        blocks: list[dict[str, Any]] = [
+            {"kind": "kv", "pairs": [(p["name"], p["description"])]}
+            for p in data["properties"]
+        ]
+        blocks.append(
+            {
+                "kind": "note",
+                "text": (
+                    "give a property name to get its smallest example, "
+                    "for example qreals witness sqrt-fail; add --nth k for the "
+                    "k-th smallest or --where for a field filter."
+                ),
+            }
+        )
+        return {
+            "kind": "witness-list",
+            "title": "witness property registry",
+            "blocks": blocks,
+            "data": data,
+        }
+
+    res = witness_mod.find_witness(property, nth=nth, where=where)
+    data = witness_mod.witness_data(res)
+    header_pairs = [
+        ("property", property),
+        ("ordering", data["ordering"]),
+        (
+            "search range",
+            f"reduced fractions a/d, d <= {res.search_cap}, {data['ordering']}",
+        ),
+    ]
+    if nth != 1:
+        header_pairs.append(("which smallest", f"nth = {nth}"))
+    if where:
+        header_pairs.append(("where", where))
+    blocks = [{"kind": "kv", "pairs": header_pairs}]
+    if res.found:
+        denom_result = compute_denom(res.a, res.d)
+        blocks.extend(denom_result["blocks"])
+        blocks.append({"kind": "note", "text": data["minimal_line"]})
+        title = f"witness for {property}: [{res.a}/{res.d}]_q"
+    else:
+        blocks.append({"kind": "note", "text": data["uncovered"]})
+        title = f"witness for {property}: none in the searched range"
+    return {
+        "kind": "witness",
+        "title": title,
         "blocks": blocks,
         "data": data,
     }
@@ -2490,6 +2631,34 @@ def _prompt_glue(qst: Any) -> dict[str, Any] | None:
     return {"p": p, "exp": exp}
 
 
+def _prompt_witness(qst: Any) -> dict[str, Any] | None:
+    from .witness import PROPERTIES
+
+    names = list(PROPERTIES)
+    answer = qst.text(
+        "property name, or 'list' for the registry  " f"({', '.join(names)})",
+        default="sqrt-fail",
+    ).ask()
+    if answer is None:
+        return None
+    name = answer.strip()
+    if not name or name == "list":
+        return {"property": "list"}
+    if name not in names:
+        return {"property": "list"}
+    nth = _ask_int(qst, "which smallest (1 = the smallest)", "1", low=1)
+    if nth is None:
+        return None
+    where = qst.text(
+        "optional field filter, e.g. d <= 60 and klass == 'RATIO' (empty for none)",
+        default="",
+    ).ask()
+    if where is None:
+        return None
+    where = where.strip()
+    return {"property": name, "nth": nth, "where": where or None}
+
+
 def _prompt_check(qst: Any) -> dict[str, Any] | None:
     answer = qst.text("claims directory", default="claims").ask()
     if answer is None or not answer.strip():
@@ -2834,6 +3003,15 @@ CAPABILITIES: list[Capability] = [
         "prime range against the exceptional verdict and p mod 4",
         _prompt_glue,
         compute_glue,
+    ),
+    Capability(
+        "witness",
+        "Smallest example of a property",
+        "the smallest reduced fraction a/d with a named property "
+        "(ratio-cofactor, no-collapse, odd-multiplicity, sqrt-fail, glue), as a "
+        "denominator dossier with a certified-minimal range; --nth and --where",
+        _prompt_witness,
+        compute_witness,
     ),
     Capability(
         "check",
@@ -3650,6 +3828,21 @@ def _glue_help_epilog() -> str:
     )
 
 
+# The worked example shown by `qreals witness --help`. Built from the live
+# search so the help text can never drift from the tool; the test suite runs
+# the command and asserts the output matches this block byte for byte.
+def _witness_help_epilog() -> str:
+    import textwrap
+
+    payload = json.dumps(compute_witness("sqrt-fail")["data"], indent=2)
+    return (
+        "worked example:\n\n"
+        "  $ qreals witness sqrt-fail --json\n"
+        + textwrap.indent(payload, "  ")
+        + "\n"
+    )
+
+
 def _check_help_epilog() -> str:
     import textwrap
 
@@ -3741,6 +3934,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_sprops.add_argument("fraction", help="the rational a/d, e.g. 5/12")
     add_json(p_sprops)
+
+    p_cyclo = sub.add_parser(
+        "cyclotomic",
+        help="headline cyclotomic factorisation of [a/b]_q: R and S as "
+        "products of Phi(e), the denominator brick strip (kept/dropped/"
+        "repeated), and the verdict (class, T, e*, deg S vs d-1)",
+    )
+    p_cyclo.add_argument("fraction", help="the rational a/b, e.g. 5/12")
+    p_cyclo.add_argument(
+        "--tex",
+        action="store_true",
+        help="emit the TeX block of the view (compiles standalone)",
+    )
+    add_json(p_cyclo)
 
     p_denom = sub.add_parser(
         "denom",
@@ -3932,6 +4139,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="checkpoint interval in seconds (default 60)",
     )
     add_json(p_glue)
+
+    p_witness = sub.add_parser(
+        "witness",
+        help="smallest reduced fraction a/d with a named property, as a "
+        "denominator dossier with a certified-minimal range",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_witness_help_epilog(),
+    )
+    p_witness.add_argument(
+        "property",
+        help="a registered property name, or 'list' to print the registry",
+    )
+    p_witness.add_argument(
+        "--nth",
+        type=int,
+        default=1,
+        metavar="K",
+        help="return the K-th smallest example (default 1, the smallest)",
+    )
+    p_witness.add_argument(
+        "--where",
+        default=None,
+        metavar="PREDICATE",
+        help="filter the search by a small predicate on the fields d, a, klass, "
+        "deg_S, a_sq_mod_d, joined by and / or, e.g. \"d <= 60 and klass == "
+        "'RATIO'\"",
+    )
+    add_json(p_witness)
 
     p_check = sub.add_parser(
         "check",
@@ -4232,6 +4467,14 @@ def _run_headless(args: argparse.Namespace) -> int:
         elif args.command == "sprops":
             a, b = _parse_rational(args.fraction)
             result = compute_sprops(a, b)
+        elif args.command == "cyclotomic":
+            a, b = _parse_rational(args.fraction)
+            if args.tex:
+                from .cyclotomic import cyclotomic_view, view_tex
+
+                print(view_tex(cyclotomic_view((a, b))))
+                return 0
+            result = compute_cyclotomic(a, b)
         elif args.command == "denom":
             a, b = _parse_rational(" ".join(args.fraction).replace(" ", "/"))
             if args.tex:
@@ -4279,6 +4522,8 @@ def _run_headless(args: argparse.Namespace) -> int:
                 print(collapse_mod.table_tex(collapse_mod.collapse_table(args.d)))
                 return 0
             result = compute_collapse(args.d)
+        elif args.command == "witness":
+            result = compute_witness(args.property, nth=args.nth, where=args.where)
         elif args.command == "satlas":
             result = compute_satlas(args.d_max, args.a_max)
         elif args.command == "saturation":
