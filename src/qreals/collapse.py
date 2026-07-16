@@ -47,7 +47,6 @@ from math import gcd
 
 import sympy as sp
 
-from . import formatter
 from .denom import (
     DenomDossier,
     Split,

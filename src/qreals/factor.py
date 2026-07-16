@@ -25,13 +25,58 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
+from functools import lru_cache
 from math import lcm
+from typing import Iterable
 
 import sympy as sp
 
 from . import formatter
 from ._parsing import parse_real
-from .rational import q, q_rational
+from .rational import q, q_rational, q_rational_pair
+
+
+@lru_cache(maxsize=None)
+def cyclotomic_poly_cached(d: int) -> sp.Poly:
+    """Phi(d) as a Poly over ZZ. Grid sweeps hit the same few dozen indices
+    thousands of times; building each Phi(d) once matters there."""
+    return sp.Poly(sp.cyclotomic_poly(d, q), q, domain="ZZ")
+
+
+@lru_cache(maxsize=None)
+def _totient_candidates(deg: int) -> tuple[int, ...]:
+    """All d with phi(d) == deg, searched over the safe span d <= 2*deg^2 + 1."""
+    return tuple(
+        d for d in range(1, 2 * deg * deg + 2) if int(sp.totient(d)) == deg
+    )
+
+
+def strip_cyclotomic(
+    poly: sp.Poly, indices: Iterable[int]
+) -> tuple[dict[int, int], sp.Poly]:
+    """Trial-divide poly by Phi(e) for each candidate index, while exact.
+
+    The shared cyclotomic-stripping loop: for each e in `indices` (in the
+    given order) divide by cyclotomic_poly_cached(e) as many times as the
+    division stays exact. Returns (multiplicities, remainder) with
+    multiplicities mapping e -> exponent of Phi(e) removed and remainder the
+    non-stripped cofactor, so poly == remainder * prod Phi(e)^mult. Callers
+    choose the index iterator (divisors of d in denom, the full 2..deg+2
+    span in qint_factor) and handle the remainder their own way.
+    """
+    mult: dict[int, int] = {}
+    rem = poly
+    for e in indices:
+        if rem.degree() < 1:
+            break
+        phi = cyclotomic_poly_cached(e)
+        while rem.degree() >= phi.degree():
+            quo, r = sp.div(rem, phi)
+            if not r.is_zero:
+                break
+            rem = quo
+            mult[e] = mult.get(e, 0) + 1
+    return mult, rem
 
 
 @dataclass(frozen=True)
@@ -118,11 +163,9 @@ def _cyclotomic_index(factor: sp.Expr) -> int | None:
         return None
     target = poly.as_expr()
     # phi(d) = deg bounds d: only the d whose totient matches the degree can
-    # match, and d <= 2 * deg^2 + 1 is a safe span for those.
-    for d in range(1, 2 * deg * deg + 2):
-        if sp.totient(d) != deg:
-            continue
-        if sp.expand(sp.cyclotomic_poly(d, q) - target) == 0:
+    # match, and the candidate list per degree is cached across calls.
+    for d in _totient_candidates(deg):
+        if sp.expand(cyclotomic_poly_cached(d).as_expr() - target) == 0:
             return d
     return None
 
@@ -192,10 +235,21 @@ def factor_qreal(x: Fraction | str | tuple[int, int] | list[int]) -> QRealFactor
     a = int(frac.numerator)
     b = int(frac.denominator)
 
-    value = sp.cancel(q_rational(a, b))
-    num, den = sp.fraction(sp.together(value))
-    num = sp.expand(num)
-    den = sp.expand(den)
+    # The Poly continuant route (q_rational_pair) reaches the same reduced
+    # numerator and denominator as sp.cancel(q_rational(a, b)) but through
+    # polynomial arithmetic instead of symbolic cancellation, which is much
+    # faster at large denominators; the two routes are verified byte-identical
+    # in the test suite. q_rational_pair is defined for positive fractions
+    # only, so the symbolic route stays as the fallback for a <= 0.
+    if a > 0:
+        num_poly, den_poly = q_rational_pair(a, b)
+        num = sp.expand(num_poly.as_expr())
+        den = sp.expand(den_poly.as_expr())
+    else:
+        value = sp.cancel(q_rational(a, b))
+        num, den = sp.fraction(sp.together(value))
+        num = sp.expand(num)
+        den = sp.expand(den)
 
     k, num_norm = _split_q_power(num)
 
@@ -311,7 +365,10 @@ class SProperties:
     equality_locus: bool
 
 
-def s_properties(x: Fraction | str | tuple[int, int] | list[int]) -> SProperties:
+def s_properties(
+    x: Fraction | str | tuple[int, int] | list[int],
+    precomputed: QRealFactor | None = None,
+) -> SProperties:
     r"""Analyze the q-denominator S(q) of [a/d]_q: its cyclotomic structure.
 
     This is the S(q) companion to factor_qreal. Where factor_qreal reports the
@@ -326,8 +383,12 @@ def s_properties(x: Fraction | str | tuple[int, int] | list[int]) -> SProperties
     Everything is exact over Z[q]: the factorisation is sympy.factor_list, the
     saturation reasoning is the squarefree-cyclotomic divisor theory of the two
     proof notes, never a numerical test.
+
+    A caller that has already factored the fraction (cyclotomic_view does) can
+    pass its QRealFactor as `precomputed` to skip the repeat factorisation; it
+    must be the factorisation of the same x.
     """
-    result = factor_qreal(x)
+    result = precomputed if precomputed is not None else factor_qreal(x)
     d = result.b
     a = result.a
     S = denominator_expr(result)

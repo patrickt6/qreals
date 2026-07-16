@@ -19,8 +19,6 @@ uses to ask when [x]_q + [-x]_q is a finite Laurent polynomial; the criterion
 
 from __future__ import annotations
 
-import sympy as sp
-
 from . import series
 from ._parsing import parse_real
 from .arithmetic import _jouteur_neg, _negation_prec, _pad

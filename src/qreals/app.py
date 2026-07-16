@@ -2266,6 +2266,125 @@ def compute_fingerprint(
     }
 
 
+def _split_inputs(text: str) -> list[str]:
+    """Split a comma-separated inputs string into trimmed, nonempty tokens."""
+    return [t.strip() for t in text.split(",") if t.strip()]
+
+
+def _sweep_results_data(results: Any, n: int, min_match: int) -> dict[str, Any]:
+    """The oeis-sweep JSON payload, one dict per input with its ranked hits."""
+    from dataclasses import asdict
+
+    return {
+        "n": n,
+        "min_match": min_match,
+        "results": [
+            {
+                "input": r.input,
+                "coeffs": list(r.coeffs),
+                "error": r.error,
+                "hits": [asdict(h) for h in r.hits],
+            }
+            for r in results
+        ],
+    }
+
+
+def compute_oeis_sweep(inputs: str, n: int = 24, min_match: int = 12) -> Result:
+    """Match the q-series of a comma-separated list of inputs against the OEIS."""
+    from . import oeis_bulk
+
+    xs = _split_inputs(inputs)
+    if not xs:
+        raise ValueError("give at least one input, e.g. 4/15, sqrt(2)")
+    results = oeis_bulk.sweep_oeis(xs, n=n, min_match=min_match)
+    return {
+        "kind": "oeis-sweep",
+        "title": f"OEIS sweep  ({len(xs)} input(s), {n} terms each)",
+        "blocks": [
+            {"kind": "note", "text": oeis_bulk.summarize(results)},
+            {
+                "kind": "note",
+                "text": (
+                    "every hit is re-verified against the entry's full b-file; "
+                    "responses are cached on disk, so a repeat runs offline. "
+                    "needs the requests extra (pip install qreals[oeis])"
+                ),
+            },
+        ],
+        "data": _sweep_results_data(results, n, min_match),
+    }
+
+
+def _hunt_outliers_data(outliers: Any, top: int) -> dict[str, Any]:
+    """The hunt JSON payload: ranked outliers with their witness features."""
+    return {
+        "top": top,
+        "outliers": [
+            {
+                "input": o.input,
+                "score": o.score,
+                "z_sum": o.z_sum,
+                "witnesses": [
+                    {
+                        "feature": w.feature,
+                        "value": w.value,
+                        "mean": w.mean,
+                        "std": w.std,
+                        "z": w.z,
+                    }
+                    for w in o.witnesses
+                ],
+            }
+            for o in outliers
+        ],
+    }
+
+
+def _hunt_outlier_line(rank: int, outlier: Any) -> str:
+    """One ranked text line: rank, input, score, and the top witness."""
+    w = outlier.witnesses[0]
+    return (
+        f"{rank:3d}. {outlier.input}  score {outlier.score:.3f}  "
+        f"({w.feature} z={w.z:+.2f}, value {w.value:g}, "
+        f"mean {w.mean:g}, std {w.std:g})"
+    )
+
+
+def compute_hunt(inputs: str, top: int = 10, witnesses: int = 3) -> Result:
+    """Rank a comma-separated list of inputs by fingerprint outlier score."""
+    from . import hunt as hunt_mod
+
+    xs = _split_inputs(inputs)
+    outliers = hunt_mod.hunt(None, xs, top, witnesses=witnesses)
+    rows = [
+        [str(i), o.input, f"{o.score:.3f}", f"{o.z_sum:.3f}",
+         f"{o.witnesses[0].feature} (z={o.witnesses[0].z:+.2f})"]
+        for i, o in enumerate(outliers, start=1)
+    ]
+    return {
+        "kind": "hunt",
+        "title": f"anomaly hunt over {len(xs)} input(s)  (top {top})",
+        "blocks": [
+            {
+                "kind": "table",
+                "columns": ["#", "input", "score", "z sum", "top witness"],
+                "rows": rows,
+            },
+            {
+                "kind": "note",
+                "text": (
+                    "score = max |z| over the fingerprint features against this "
+                    "population; a screening statistic, not a verdict. A high "
+                    "score marks an input worth a dossier, it proves nothing by "
+                    "itself"
+                ),
+            },
+        ],
+        "data": _hunt_outliers_data(outliers, top),
+    }
+
+
 def _format_laurent_v(valuation: int, coeffs: list[int]) -> str:
     """Render a Laurent result (valuation, coeffs) as a readable q-polynomial."""
     terms: list[str] = []
@@ -2487,6 +2606,30 @@ def _prompt_jumpgap(qst: Any) -> dict[str, Any] | None:
         return None
     p, s = _parse_rational(answer.strip())
     return {"p": p, "s": s}
+
+
+def _validate_rational_or_empty(text: str) -> bool | str:
+    if not text.strip():
+        return True
+    return _validate_rational(text)
+
+
+def _prompt_exact(qst: Any) -> dict[str, Any] | None:
+    x = qst.text(
+        "rational x  (for example 7/5)",
+        default="7/5",
+        validate=_validate_rational,
+    ).ask()
+    if x is None:
+        return None
+    y = qst.text(
+        "optional rational y for the difference [x]_q - [y]_q (empty for none)",
+        default="",
+        validate=_validate_rational_or_empty,
+    ).ask()
+    if y is None:
+        return None
+    return {"x": x.strip(), "y": y.strip()}
 
 
 def _prompt_factor(qst: Any) -> dict[str, Any] | None:
@@ -2913,6 +3056,45 @@ def _prompt_fingerprint(qst: Any) -> dict[str, Any] | None:
     return None if n is None else {"x": x, "n_coeffs": n}
 
 
+def _validate_input_list(text: str) -> bool | str:
+    xs = _split_inputs(text)
+    if len(xs) < 1:
+        return "enter at least one input, e.g. 4/15, sqrt(2)"
+    for x in xs:
+        check = _validate_real(x)
+        if check is not True:
+            return f"{x}: {check}"
+    return True
+
+
+def _prompt_oeis_sweep(qst: Any) -> dict[str, Any] | None:
+    inputs = qst.text(
+        "inputs, comma separated  (for example 4/15, sqrt(2))",
+        default="4/15, sqrt(2)",
+        validate=_validate_input_list,
+    ).ask()
+    if inputs is None:
+        return None
+    n = _ask_int(qst, "coefficients per input", "24", low=1)
+    if n is None:
+        return None
+    return {"inputs": inputs.strip(), "n": n}
+
+
+def _prompt_hunt(qst: Any) -> dict[str, Any] | None:
+    inputs = qst.text(
+        "inputs, comma separated, at least two  (for example 3/2, 7/5, 22/7, 355/113)",
+        default="3/2, 7/5, 22/7, 355/113",
+        validate=_validate_input_list,
+    ).ask()
+    if inputs is None:
+        return None
+    top = _ask_int(qst, "how many outliers to rank", "10", low=1)
+    if top is None:
+        return None
+    return {"inputs": inputs.strip(), "top": top}
+
+
 CAPABILITIES: list[Capability] = [
     Capability(
         "rational",
@@ -2927,6 +3109,14 @@ CAPABILITIES: list[Capability] = [
         "the right and left versions of p/s and the factored gap between them",
         _prompt_jumpgap,
         compute_jumpgap,
+    ),
+    Capability(
+        "exact",
+        "Exact [x]_q = P/Q  and exact differences",
+        "the exact rational function P(q)/Q(q) of a q-rational x, or the exact "
+        "difference [x]_q - [y]_q with the Q_x | Q_y divisibility checks",
+        _prompt_exact,
+        compute_exact_rational,
     ),
     Capability(
         "factor",
@@ -3151,6 +3341,24 @@ CAPABILITIES: list[Capability] = [
         _prompt_fingerprint,
         compute_fingerprint,
     ),
+    Capability(
+        "oeis-sweep",
+        "Bulk OEIS sweep over many inputs",
+        "match the q-series of a whole list of inputs against the OEIS at "
+        "once, with caching, rate limiting, and b-file re-verification; "
+        "every hit is a potential theorem pointer",
+        _prompt_oeis_sweep,
+        compute_oeis_sweep,
+    ),
+    Capability(
+        "hunt",
+        "Anomaly hunter over fingerprints",
+        "rank the inputs whose feature fingerprints sit farthest from the "
+        "population, with the witness features that make each one stand "
+        "out; a screening statistic, not a verdict",
+        _prompt_hunt,
+        compute_hunt,
+    ),
 ]
 
 CAPABILITY_BY_KEY: dict[str, Capability] = {c.key: c for c in CAPABILITIES}
@@ -3158,16 +3366,100 @@ CAPABILITY_BY_KEY: dict[str, Capability] = {c.key: c for c in CAPABILITIES}
 
 _DOCTOR_LABEL = "Doctor / environment check"
 _SAVED_LABEL = "My saved list"
+_ACTIONS_LABEL = "Command-line actions (serve, batch, export, certify)"
 
 
 def build_menu_choices() -> list[str]:
-    """The main-menu labels: capabilities, the saved list, Doctor, Help, Quit."""
+    """The main-menu labels: capabilities, the saved list, actions, Doctor,
+    Help, Quit."""
     return [c.title for c in CAPABILITIES] + [
         _SAVED_LABEL,
+        _ACTIONS_LABEL,
         _DOCTOR_LABEL,
         "Help / About",
         "Quit",
     ]
+
+
+def _actions_result() -> Result:
+    """The scripting-side commands the menu cannot host, with copyable lines."""
+    rows = [
+        ["serve", "qreals serve --port 8000", "localhost MathJax web UI"],
+        [
+            "batch",
+            'qreals batch "pi,sqrt(2),3/2" --order 12 --format csv -o out.csv',
+            "compute a list of constants, write one export file",
+        ],
+        [
+            "export",
+            "qreals export --format csv -o saved.csv",
+            "write the saved list as JSON, CSV, LaTeX, or Magma",
+        ],
+        [
+            "saved",
+            "qreals saved [--remove INDEX | --clear]",
+            "list or edit the saved list without the menu",
+        ],
+        [
+            "certify",
+            "qreals certify rational 3 2 [--save | --pdf]",
+            "print or save the full derivation of a result",
+        ],
+        [
+            "check",
+            "qreals check CLAIMS_DIR [--budget S]",
+            "replay claim files and report PASS or DRIFT",
+        ],
+        [
+            "mcp",
+            "qreals mcp",
+            "MCP stdio server for AI agents (Claude Desktop / Claude Code)",
+        ],
+        [
+            "dataset",
+            "qreals dataset atlas --d-max 60 --to atlas.csv",
+            "write an ML-ready dataset file (negation census or S(q) atlas)",
+        ],
+        [
+            "explain",
+            "qreals rational 3 2 --json | qreals explain",
+            "Claude API prose summary of a --json result (needs a key)",
+        ],
+    ]
+    return {
+        "title": "command-line actions",
+        "blocks": [
+            {
+                "kind": "note",
+                "text": (
+                    "these run headless in your shell; copy a line below, or "
+                    "launch the web UI from here"
+                ),
+            },
+            {"kind": "table", "columns": ["command", "run", "what it does"],
+             "rows": rows},
+        ],
+        "data": {"commands": [r[0] for r in rows]},
+    }
+
+
+_LAUNCH_SERVE = "Start the web UI now (Ctrl-C returns to the menu)"
+
+
+def _run_actions(qst: Any, console: Any | None) -> None:
+    """Show the headless commands; optionally launch the web UI in place."""
+    render_result(_actions_result(), console, verify_result=False)
+    choice = qst.select("Next?", choices=[_LAUNCH_SERVE, _BACK]).ask()
+    if choice != _LAUNCH_SERVE:
+        return
+    try:
+        from . import serve as serve_mod
+
+        serve_mod.serve(port=8000, open_browser=True)
+    except KeyboardInterrupt:
+        _say(console, "\nweb UI stopped; back to the menu.")
+    except Exception as exc:  # noqa: BLE001 - report and stay in the menu
+        _say(console, f"could not start the web UI: {exc}")
 
 
 # --------------------------------------------------------------------------
@@ -3286,6 +3578,9 @@ def run_interactive() -> int:
                 return 0
             if choice == _SAVED_LABEL:
                 _saved_menu(qst, console)
+                continue
+            if choice == _ACTIONS_LABEL:
+                _run_actions(qst, console)
                 continue
             if choice == _DOCTOR_LABEL:
                 run_doctor(console)
@@ -3693,6 +3988,9 @@ def doctor_report() -> dict[str, Any]:
         "rich": _module_available("rich"),
         "tex_engine": _tex_engine_name(),
         "menu_will_run": menu_will_run,
+        # main() wires argcomplete into the parser whenever it imports, so
+        # importability is exactly "shell tab completion is active".
+        "argcomplete": _module_available("argcomplete"),
     }
 
 
@@ -3716,6 +4014,12 @@ def run_doctor(console: Any | None = None) -> int:
         f"  questionary      : {'available' if report['questionary'] else 'missing'}",
         f"  rich             : {'available' if report['rich'] else 'missing'}",
         f"  tex engine       : {tex}",
+        "  tab completion   : "
+        + (
+            "active (argcomplete importable)"
+            if report["argcomplete"]
+            else "off (pip install argcomplete to enable)"
+        ),
     ]
     if report["menu_will_run"]:
         verdict = "verdict: the interactive menu will run here."
@@ -3857,20 +4161,116 @@ def _check_help_epilog() -> str:
     )
 
 
+# Worked-example epilogs, resolved only when help is actually rendered. Each
+# builder runs its tool's real computation (that is the point: help that
+# cannot drift), which costs ~0.3 s in total; paying that on every command
+# invocation just to build parsers made `qreals rational 3 2` twice as slow
+# as the computation itself.
+# The grouped command index shown by `qreals --help`. Static text, but built
+# through the same lazy registry as the worked examples so the flat parser
+# build never pays for it and the headings live next to the other epilogs.
+def _main_help_epilog() -> str:
+    groups: list[tuple[str, list[str]]] = [
+        (
+            "Compute",
+            [
+                "rational", "exact", "qint", "jumpgap", "arith", "quad",
+                "deficit", "negate", "negsum",
+            ],
+        ),
+        (
+            "Factor and structure",
+            [
+                "factor", "sprops", "cyclotomic", "denom", "why", "twin",
+                "bricks", "collapse", "glue", "witness",
+            ],
+        ),
+        (
+            "Series and coefficients",
+            [
+                "coeffs", "laurent", "prefix", "locked", "shift", "readouts",
+                "radius", "oeis", "fingerprint",
+            ],
+        ),
+        (
+            "Visualize and sweep",
+            ["satlas", "saturation", "degcollapse", "oeis-sweep", "hunt"],
+        ),
+        ("Verify and provenance", ["check", "certify", "conj"]),
+        (
+            "Files and app",
+            [
+                "menu", "serve", "mcp", "batch", "export", "dataset", "saved",
+                "doctor", "explain",
+            ],
+        ),
+    ]
+    lines = ["command groups:"]
+    for heading, names in groups:
+        lines.append(f"  {heading}:")
+        row: list[str] = []
+        for name in names:
+            row.append(name)
+            if len("    " + "  ".join(row)) > 64:
+                lines.append("    " + "  ".join(row))
+                row = []
+        if row:
+            lines.append("    " + "  ".join(row))
+    lines.append("")
+    lines.append("run `qreals <command> --help` for details and a worked example")
+    return "\n".join(lines) + "\n"
+
+
+_HELP_EPILOGS: dict[str, Callable[[], str]] = {
+    "qreals": _main_help_epilog,
+    "denom": _denom_help_epilog,
+    "why": _why_help_epilog,
+    "twin": _twin_help_epilog,
+    "bricks": _bricks_help_epilog,
+    "collapse": _collapse_help_epilog,
+    "conj": _conj_help_epilog,
+    "glue": _glue_help_epilog,
+    "witness": _witness_help_epilog,
+    "check": _check_help_epilog,
+}
+
+
+class _LazyEpilogParser(argparse.ArgumentParser):
+    """ArgumentParser that computes its worked-example epilog on first use.
+
+    Subparsers inherit this class through add_subparsers, and a subcommand
+    parser's prog is "qreals <command>", so the command name keys the registry
+    above. Parsers whose command is not in the registry keep epilog None.
+    """
+
+    def format_help(self) -> str:
+        if self.epilog is None:
+            builder = _HELP_EPILOGS.get(self.prog.split()[-1])
+            if builder is not None:
+                self.epilog = builder()
+        return super().format_help()
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _LazyEpilogParser(
         prog="qreals",
         description=(
-            "q-deformed rationals and reals. Run with no arguments for a guided "
+            "q-deformed rationals and reals. Run with no arguments for a guided\n"
             "arrow-key menu, or use a subcommand below for scripting."
         ),
+        # Raw so the grouped command index in the lazy epilog keeps its layout.
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = parser.add_subparsers(dest="command")
+    sub = parser.add_subparsers(dest="command", metavar="<command>")
+
+    def add_json(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--json", action="store_true", help="print the result as JSON")
 
     sub.add_parser("menu", help="open the interactive arrow-key menu (the default)")
-    sub.add_parser(
+    p_doctor = sub.add_parser(
         "doctor", help="report OS, Python, TTY, and which optional extras import"
     )
+    add_json(p_doctor)
 
     p_certify = sub.add_parser(
         "certify",
@@ -3904,9 +4304,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="with --save, also record the run in your .qprov store (needs qprov)",
     )
-
-    def add_json(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--json", action="store_true", help="print the result as JSON")
+    add_json(p_certify)
 
     p_rational = sub.add_parser("rational", help="exact [p/s]_q")
     p_rational.add_argument("p", type=int)
@@ -3924,7 +4322,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "factor",
         help="factor R(q), S(q) of [a/b]_q over Z[q], labelling Phi(d) factors",
     )
-    p_factor.add_argument("fraction", help="the rational a/b, e.g. 7/5")
+    p_factor.add_argument(
+        "fraction",
+        nargs="+",
+        help="the rational a/b, as one token 7/5 or two tokens 7 5",
+    )
     add_json(p_factor)
 
     p_sprops = sub.add_parser(
@@ -3932,7 +4334,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="properties of the denominator S(q): cyclotomic factors, "
         "saturation index e*, deg S vs d-1, S(1)=d, collapse vs full [d]_q",
     )
-    p_sprops.add_argument("fraction", help="the rational a/d, e.g. 5/12")
+    p_sprops.add_argument(
+        "fraction",
+        nargs="+",
+        help="the rational a/d, as one token 5/12 or two tokens 5 12",
+    )
     add_json(p_sprops)
 
     p_cyclo = sub.add_parser(
@@ -3941,7 +4347,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "products of Phi(e), the denominator brick strip (kept/dropped/"
         "repeated), and the verdict (class, T, e*, deg S vs d-1)",
     )
-    p_cyclo.add_argument("fraction", help="the rational a/b, e.g. 5/12")
+    p_cyclo.add_argument(
+        "fraction",
+        nargs="+",
+        help="the rational a/b, as one token 5/12 or two tokens 5 12",
+    )
     p_cyclo.add_argument(
         "--tex",
         action="store_true",
@@ -3953,7 +4363,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "denom",
         help="one-shot denominator dossier of [a/d]_q",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_denom_help_epilog(),
     )
     p_denom.add_argument(
         "fraction",
@@ -3972,7 +4381,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="exact divisibility of S(q) at one cyclotomic index e, with the "
         "recurrence trace at the e-th root of unity",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_why_help_epilog(),
     )
     p_why.add_argument(
         "fraction",
@@ -3987,7 +4395,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="fractions sharing the q-denominator S of [a/d]_q: the class at d "
         "paired under a -> -a^{-1} mod d, or --across other moduli",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_twin_help_epilog(),
     )
     p_twin.add_argument(
         "fraction",
@@ -4014,7 +4421,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="cyclotomic reference card of [n]_q: every factor expanded, "
         "deg = phi(e), value at 1, prime-power vs composite divisors",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_bricks_help_epilog(),
     )
     p_bricks.add_argument("n", type=int, help="the q-integer index, e.g. 12")
     p_bricks.add_argument(
@@ -4042,7 +4448,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="reverse table at one modulus: numerators grouped by identical "
         "S, residues per prime-power part, realized splits, and c(d)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_collapse_help_epilog(),
     )
     p_collapse.add_argument(
         "d", type=int, nargs="?", default=None, help="the modulus d, e.g. 60"
@@ -4067,7 +4472,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="conjecture falsifier: scan a registered conjecture for its "
         "first counterexample, or 'list' the registry",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_conj_help_epilog(),
     )
     p_conj.add_argument(
         "name",
@@ -4105,7 +4509,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="prime-power sharing-class anomaly hunter: classes of more than "
         "two numerators at p^e, or a --scan over a prime range",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_glue_help_epilog(),
     )
     p_glue.add_argument(
         "p", type=int, nargs="?", default=None, help="the prime p, e.g. 13"
@@ -4145,7 +4548,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="smallest reduced fraction a/d with a named property, as a "
         "denominator dossier with a certified-minimal range",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_witness_help_epilog(),
     )
     p_witness.add_argument(
         "property",
@@ -4173,7 +4575,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="replay a directory of claim files through the public CLI and "
         "report PASS or DRIFT per claim, under a total time budget",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_check_help_epilog(),
     )
     p_check.add_argument(
         "claims_dir",
@@ -4450,130 +4851,293 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     add_json(p_saved)
 
+    p_sweep = sub.add_parser(
+        "oeis-sweep",
+        help="match the q-series of many inputs against the OEIS, cached and "
+        "rate limited, every hit re-verified against its b-file",
+    )
+    p_sweep.add_argument(
+        "inputs",
+        nargs="*",
+        help='input reals for [x]_q, e.g. 4/15 sqrt(2); or use --fractions',
+    )
+    p_sweep.add_argument(
+        "--fractions",
+        type=int,
+        metavar="D_MAX",
+        help="sweep every coprime proper fraction a/d with 2 <= d <= D_MAX "
+        "instead of listing inputs",
+    )
+    p_sweep.add_argument(
+        "--a-max", type=int, help="with --fractions, cap the numerator a per d"
+    )
+    p_sweep.add_argument(
+        "--n", type=int, default=24, help="Taylor coefficients per input (default 24)"
+    )
+    p_sweep.add_argument(
+        "--min-match",
+        type=int,
+        default=12,
+        help="minimum matching prefix length for a hit (default 12)",
+    )
+    p_sweep.add_argument(
+        "--cache-dir",
+        help="cache directory for raw OEIS responses (default ~/.cache/qreals/oeis)",
+    )
+    p_sweep.add_argument(
+        "--rate-limit",
+        type=float,
+        default=1.0,
+        help="minimum seconds between network calls; cache hits never wait "
+        "(default 1.0)",
+    )
+    add_json(p_sweep)
+
+    p_hunt = sub.add_parser(
+        "hunt",
+        help="rank the inputs whose feature fingerprints sit farthest from "
+        "the population (a screening statistic, not a verdict)",
+    )
+    p_hunt.add_argument(
+        "inputs",
+        nargs="*",
+        help="two or more input reals to hunt over; or use --d-range",
+    )
+    p_hunt.add_argument(
+        "--kind",
+        choices=["fingerprint", "sprops"],
+        default="fingerprint",
+        help="with --d-range, the property set: the featurize fingerprint of "
+        "[a/d]_q, or the S(q) denominator properties (default fingerprint)",
+    )
+    p_hunt.add_argument(
+        "--d-range",
+        metavar="LO..HI",
+        help="hunt the coprime proper fractions a/d over this denominator range",
+    )
+    p_hunt.add_argument(
+        "--a-max", type=int, help="with --d-range, cap the numerator a per d"
+    )
+    p_hunt.add_argument(
+        "--top", type=int, default=10, help="how many outliers to report (default 10)"
+    )
+    p_hunt.add_argument(
+        "--witnesses",
+        type=int,
+        default=3,
+        help="witness features per outlier (default 3)",
+    )
+    add_json(p_hunt)
+
+    p_dataset = sub.add_parser(
+        "dataset",
+        help="write an ML-ready dataset (CSV or JSONL) from the exact engine",
+        description=(
+            "negation: one row per sqrt(d) for the x -> -x finiteness "
+            "question (Ovsienko Example 6.4). CAUTION: its finite_verdict "
+            "column is a truncation-order HEURISTIC, not ground truth; the "
+            "verdict_kind column names the order used, e.g. "
+            "heuristic-order-400. atlas: one row per coprime proper "
+            "fraction a/d with the exact columns a, d, deg_S, deg_bound, "
+            "regime, saturation_index (all theorems of the factorisation)."
+        ),
+    )
+    p_dataset.add_argument(
+        "which", choices=["negation", "atlas"], help="which table to generate"
+    )
+    p_dataset.add_argument(
+        "--d-values",
+        metavar="LIST|LO..HI",
+        help='negation: the d values for sqrt(d), a comma list "2,3,5" or a '
+        "range 2..300",
+    )
+    p_dataset.add_argument(
+        "--order",
+        type=int,
+        default=400,
+        help="negation: Laurent order N for the panel and the heuristic "
+        "verdict (default 400)",
+    )
+    p_dataset.add_argument(
+        "--d-max", type=int, help="atlas: sweep denominators 2 <= d <= D_MAX"
+    )
+    p_dataset.add_argument(
+        "--a-max", type=int, help="atlas: cap the numerator a per d"
+    )
+    p_dataset.add_argument(
+        "--to",
+        required=True,
+        metavar="PATH",
+        help="output file; the format comes from the .csv or .jsonl suffix "
+        "unless --format is given",
+    )
+    p_dataset.add_argument(
+        "--format", choices=["csv", "jsonl"], help="output format override"
+    )
+    add_json(p_dataset)
+
+    sub.add_parser(
+        "mcp",
+        help="run the Model Context Protocol stdio server exposing the "
+        "engine as tools for AI agents (needs the mcp package)",
+    )
+
+    p_explain = sub.add_parser(
+        "explain",
+        help="short Claude API prose summary of a --json result; the model "
+        "narrates, the engine computed (needs anthropic and ANTHROPIC_API_KEY)",
+    )
+    p_explain.add_argument(
+        "file",
+        nargs="?",
+        help="path to a result JSON file; omit or use - to read stdin",
+    )
+    p_explain.add_argument("--model", help="Claude model id override")
+
     return parser
+
+
+def _fraction_arg(tokens: list[str]) -> tuple[int, int]:
+    """One fraction from CLI tokens: one token 19/60 or two tokens 19 60."""
+    return _parse_rational(" ".join(tokens).replace(" ", "/"))
+
+
+# Handlers for the result-rendering subcommands, one per command. A handler
+# returns the Result to render, or None when it already printed everything
+# itself (the --tex and --range short-circuits), which exits 0.
+
+
+def _cmd_factor(args: argparse.Namespace) -> Result:
+    a, b = _fraction_arg(args.fraction)
+    return compute_factor(a, b)
+
+
+def _cmd_sprops(args: argparse.Namespace) -> Result:
+    a, b = _fraction_arg(args.fraction)
+    return compute_sprops(a, b)
+
+
+def _cmd_cyclotomic(args: argparse.Namespace) -> Result | None:
+    a, b = _fraction_arg(args.fraction)
+    if args.tex:
+        from .cyclotomic import cyclotomic_view, view_tex
+
+        print(view_tex(cyclotomic_view((a, b))))
+        return None
+    return compute_cyclotomic(a, b)
+
+
+def _cmd_denom(args: argparse.Namespace) -> Result | None:
+    a, b = _fraction_arg(args.fraction)
+    if args.tex:
+        from .denom import denom_dossier, dossier_tex
+
+        print(dossier_tex(denom_dossier(a, b)))
+        return None
+    return compute_denom(a, b)
+
+
+def _cmd_why(args: argparse.Namespace) -> Result:
+    tokens = list(args.fraction)
+    if len(tokens) < 2:
+        raise ValueError("give a fraction and an index e, e.g. 5/12 12 or 5 12 12")
+    e = int(tokens[-1])
+    a, b = _fraction_arg(tokens[:-1])
+    return compute_why(a, b, e)
+
+
+def _cmd_twin(args: argparse.Namespace) -> Result:
+    a, b = _fraction_arg(args.fraction)
+    return compute_twin(a, b, across=args.across)
+
+
+def _cmd_bricks(args: argparse.Namespace) -> Result | None:
+    if args.tex:
+        from .bricks import bricks_card, card_tex, parse_lcm_subset
+
+        subset = parse_lcm_subset(args.lcm) if args.lcm else None
+        print(card_tex(bricks_card(args.n, lcm_subset=subset, at=args.at)))
+        return None
+    return compute_bricks(args.n, args.lcm, args.at)
+
+
+def _cmd_collapse(args: argparse.Namespace) -> Result | None:
+    from . import collapse as collapse_mod
+
+    if args.d_range is not None:
+        d1, d2 = collapse_mod.parse_range(args.d_range)
+        print(f"c(d) over d = {d1}..{d2}", file=sys.stderr)
+        if args.json:
+            rows = [list(collapse_mod.range_row(d)) for d in range(d1, d2 + 1)]
+            print(json.dumps({"d1": d1, "d2": d2, "rows": rows}, indent=2))
+        else:
+            for d in range(d1, d2 + 1):
+                print("%d %d" % collapse_mod.range_row(d), flush=True)
+        return None
+    if args.d is None:
+        raise ValueError("give a modulus d or --range d1..d2")
+    if args.tex:
+        print(collapse_mod.table_tex(collapse_mod.collapse_table(args.d)))
+        return None
+    return compute_collapse(args.d)
+
+
+# Dispatch table: command name -> handler. The one-line commands stay as
+# lambdas so the whole mapping reads at a glance; anything with parsing or a
+# short-circuit gets a named _cmd_* function above. Commands that own their
+# exit codes and output formats (doctor, certify, conj, ...) are not here;
+# they dispatch through _META_HANDLERS at the foot of the module.
+_HEADLESS_HANDLERS: dict[str, Callable[[argparse.Namespace], Result | None]] = {
+    "rational": lambda a: compute_rational(a.p, a.s),
+    "jumpgap": lambda a: compute_jumpgap(a.p, a.s),
+    "factor": _cmd_factor,
+    "sprops": _cmd_sprops,
+    "cyclotomic": _cmd_cyclotomic,
+    "denom": _cmd_denom,
+    "why": _cmd_why,
+    "twin": _cmd_twin,
+    "bricks": _cmd_bricks,
+    "collapse": _cmd_collapse,
+    "witness": lambda a: compute_witness(a.property, nth=a.nth, where=a.where),
+    "satlas": lambda a: compute_satlas(a.d_max, a.a_max),
+    "saturation": lambda a: compute_saturation(a.d),
+    "degcollapse": lambda a: compute_degcollapse(a.d_max, a.a_max),
+    "exact": lambda a: compute_exact_rational(a.x, a.y),
+    "qint": lambda a: compute_qint(a.n),
+    "coeffs": lambda a: compute_coeffs(a.x, a.n),
+    "laurent": lambda a: compute_laurent(a.x, a.order),
+    "prefix": lambda a: compute_prefix(a.x),
+    "locked": lambda a: compute_locked(a.x, a.n),
+    "shift": lambda a: compute_shift(a.x, a.order, "down" if a.down else "up"),
+    "readouts": lambda a: compute_readouts(a.x, a.n),
+    "arith": lambda a: compute_arith(a.x, a.y, a.n, "mul" if a.mul else "add"),
+    "quad": lambda a: compute_quad_arith(a.x, a.y, a.op),
+    "deficit": lambda a: compute_deficit(a.x, a.y, a.n, "mul" if a.mul else "add"),
+    "negate": lambda a: compute_negation(a.x, a.n),
+    "negsum": lambda a: compute_negsum(a.x, a.n),
+    "radius": lambda a: compute_radius(a.x, a.n),
+    "oeis": lambda a: compute_oeis(
+        a.sequence, do_modp=not a.no_modp, do_bfile=not a.no_bfile
+    ),
+    "fingerprint": lambda a: compute_fingerprint(
+        a.x, n_cf=a.n_cf, n_coeffs=a.n_coeffs, n_radius=a.n_radius
+    ),
+}
 
 
 def _run_headless(args: argparse.Namespace) -> int:
     console = None if getattr(args, "json", False) else _make_console()
     as_json = getattr(args, "json", False)
     try:
-        if args.command == "rational":
-            result = compute_rational(args.p, args.s)
-        elif args.command == "jumpgap":
-            result = compute_jumpgap(args.p, args.s)
-        elif args.command == "factor":
-            a, b = _parse_rational(args.fraction)
-            result = compute_factor(a, b)
-        elif args.command == "sprops":
-            a, b = _parse_rational(args.fraction)
-            result = compute_sprops(a, b)
-        elif args.command == "cyclotomic":
-            a, b = _parse_rational(args.fraction)
-            if args.tex:
-                from .cyclotomic import cyclotomic_view, view_tex
-
-                print(view_tex(cyclotomic_view((a, b))))
-                return 0
-            result = compute_cyclotomic(a, b)
-        elif args.command == "denom":
-            a, b = _parse_rational(" ".join(args.fraction).replace(" ", "/"))
-            if args.tex:
-                from .denom import denom_dossier, dossier_tex
-
-                print(dossier_tex(denom_dossier(a, b)))
-                return 0
-            result = compute_denom(a, b)
-        elif args.command == "why":
-            tokens = list(args.fraction)
-            if len(tokens) < 2:
-                raise ValueError(
-                    "give a fraction and an index e, e.g. 5/12 12 or 5 12 12"
-                )
-            e = int(tokens[-1])
-            a, b = _parse_rational(" ".join(tokens[:-1]).replace(" ", "/"))
-            result = compute_why(a, b, e)
-        elif args.command == "twin":
-            a, b = _parse_rational(" ".join(args.fraction).replace(" ", "/"))
-            result = compute_twin(a, b, across=args.across)
-        elif args.command == "bricks":
-            if args.tex:
-                from .bricks import bricks_card, card_tex, parse_lcm_subset
-
-                subset = parse_lcm_subset(args.lcm) if args.lcm else None
-                print(card_tex(bricks_card(args.n, lcm_subset=subset, at=args.at)))
-                return 0
-            result = compute_bricks(args.n, args.lcm, args.at)
-        elif args.command == "collapse":
-            from . import collapse as collapse_mod
-
-            if args.d_range is not None:
-                d1, d2 = collapse_mod.parse_range(args.d_range)
-                print(f"c(d) over d = {d1}..{d2}", file=sys.stderr)
-                if args.json:
-                    rows = [list(collapse_mod.range_row(d)) for d in range(d1, d2 + 1)]
-                    print(json.dumps({"d1": d1, "d2": d2, "rows": rows}, indent=2))
-                else:
-                    for d in range(d1, d2 + 1):
-                        print("%d %d" % collapse_mod.range_row(d), flush=True)
-                return 0
-            if args.d is None:
-                raise ValueError("give a modulus d or --range d1..d2")
-            if args.tex:
-                print(collapse_mod.table_tex(collapse_mod.collapse_table(args.d)))
-                return 0
-            result = compute_collapse(args.d)
-        elif args.command == "witness":
-            result = compute_witness(args.property, nth=args.nth, where=args.where)
-        elif args.command == "satlas":
-            result = compute_satlas(args.d_max, args.a_max)
-        elif args.command == "saturation":
-            result = compute_saturation(args.d)
-        elif args.command == "degcollapse":
-            result = compute_degcollapse(args.d_max, args.a_max)
-        elif args.command == "exact":
-            result = compute_exact_rational(args.x, args.y)
-        elif args.command == "qint":
-            result = compute_qint(args.n)
-        elif args.command == "coeffs":
-            result = compute_coeffs(args.x, args.n)
-        elif args.command == "laurent":
-            result = compute_laurent(args.x, args.order)
-        elif args.command == "prefix":
-            result = compute_prefix(args.x)
-        elif args.command == "locked":
-            result = compute_locked(args.x, args.n)
-        elif args.command == "shift":
-            direction = "down" if args.down else "up"
-            result = compute_shift(args.x, args.order, direction)
-        elif args.command == "readouts":
-            result = compute_readouts(args.x, args.n)
-        elif args.command == "arith":
-            result = compute_arith(args.x, args.y, args.n, "mul" if args.mul else "add")
-        elif args.command == "quad":
-            result = compute_quad_arith(args.x, args.y, args.op)
-        elif args.command == "deficit":
-            result = compute_deficit(
-                args.x, args.y, args.n, "mul" if args.mul else "add"
-            )
-        elif args.command == "negate":
-            result = compute_negation(args.x, args.n)
-        elif args.command == "negsum":
-            result = compute_negsum(args.x, args.n)
-        elif args.command == "radius":
-            result = compute_radius(args.x, args.n)
-        elif args.command == "oeis":
-            result = compute_oeis(
-                args.sequence, do_modp=not args.no_modp, do_bfile=not args.no_bfile
-            )
-        elif args.command == "fingerprint":
-            result = compute_fingerprint(
-                args.x, n_cf=args.n_cf, n_coeffs=args.n_coeffs, n_radius=args.n_radius
-            )
-        else:  # pragma: no cover - argparse guards this
+        handler = _HEADLESS_HANDLERS.get(args.command)
+        if handler is None:  # pragma: no cover - argparse guards this
             raise ValueError(f"unknown command {args.command!r}")
+        result = handler(args)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    if result is None:
+        return 0
     render_result(result, console, as_json=as_json)
     return 0
 
@@ -4690,6 +5254,18 @@ def _run_certify(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    if getattr(args, "json", False):
+        payload = {
+            "title": cert.title,
+            "input": cert.input_line,
+            "cf": list(cert.cf),
+            "even_cf": list(cert.even_cf),
+            "result": None if cert.result_expr is None else sp.sstr(cert.result_expr),
+            "coefficients": cert.coeffs,
+            "verification": cert.stamp.as_dict(),
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
     if args.save:
         written = cert.save(".", qprov=args.qprov)
         print(f"wrote {written['tex']}")
@@ -4710,33 +5286,41 @@ def _run_certify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_doctor_cmd(args: argparse.Namespace) -> int:
+    """The doctor subcommand: the human report, or the same dict as JSON."""
+    if getattr(args, "json", False):
+        report: Result = {"title": "qreals doctor", "blocks": [], "data": doctor_report()}
+        render_result(report, None, as_json=True)
+        return 0
+    return run_doctor(_make_console())
+
+
+def _maybe_enable_completion(parser: argparse.ArgumentParser) -> None:
+    """Activate argcomplete tab completion when the optional package is present.
+
+    argcomplete is not a dependency; without it this is a no-op. When the
+    shell is not mid-completion, autocomplete() returns immediately, so the
+    call costs nothing on a normal invocation.
+    """
+    import importlib
+
+    if _module_available("argcomplete"):
+        importlib.import_module("argcomplete").autocomplete(parser)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point. No arguments opens the menu; a subcommand runs headless."""
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv == ["menu"]:
         return run_interactive()
     parser = _build_parser()
+    _maybe_enable_completion(parser)
     args = parser.parse_args(argv)
     if args.command is None:
         return run_interactive()
-    if args.command == "doctor":
-        return run_doctor(_make_console())
-    if args.command == "certify":
-        return _run_certify(args)
-    if args.command == "batch":
-        return _run_batch(args)
-    if args.command == "export":
-        return _run_export(args)
-    if args.command == "saved":
-        return _run_saved(args)
-    if args.command == "serve":
-        return _run_serve(args)
-    if args.command == "conj":
-        return _run_conj(args)
-    if args.command == "glue":
-        return _run_glue(args)
-    if args.command == "check":
-        return _run_check(args)
+    meta = _META_HANDLERS.get(args.command)
+    if meta is not None:
+        return meta(args)
     return _run_headless(args)
 
 
@@ -4873,6 +5457,214 @@ def _run_serve(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print("\nqreals serve stopped.")
         return 0
+
+
+def _parse_d_values(text: str) -> list[int]:
+    """Parse a d-values spec: a range "LO..HI" or a comma list "2,3,5"."""
+    text = text.strip()
+    if ".." in text:
+        lo_str, hi_str = text.split("..", 1)
+        lo, hi = int(lo_str), int(hi_str)
+        if hi < lo:
+            raise ValueError(f"empty range {lo}..{hi}")
+        return list(range(lo, hi + 1))
+    values = [int(t) for t in text.split(",") if t.strip()]
+    if not values:
+        raise ValueError("no d values given")
+    return values
+
+
+_OEIS_INSTALL_HINT = "install the network extra with pip install qreals[oeis]"
+
+
+def _run_oeis_sweep(args: argparse.Namespace) -> int:
+    """Bulk OEIS sweep over listed inputs or a --fractions grid.
+
+    Owns its output formats: the ranked plain-text report from
+    oeis_bulk.summarize, or the {"n", "min_match", "results"} JSON payload.
+    A missing requests install degrades to a one-line install hint.
+    """
+    from . import oeis_bulk
+    from .oeis import OeisUnavailable
+
+    if args.fractions is not None and args.inputs:
+        print("error: give inputs or --fractions, not both", file=sys.stderr)
+        return 2
+    if args.fractions is not None:
+        from .hunt import _coprime_fractions
+
+        inputs = _coprime_fractions(range(2, args.fractions + 1), args.a_max)
+        if not inputs:
+            print("error: --fractions needs D_MAX >= 2", file=sys.stderr)
+            return 2
+    elif args.inputs:
+        inputs = list(args.inputs)
+    else:
+        print("error: give inputs or --fractions D_MAX", file=sys.stderr)
+        return 2
+    try:
+        results = oeis_bulk.sweep_oeis(
+            inputs,
+            n=args.n,
+            min_match=args.min_match,
+            cache_dir=args.cache_dir,
+            rate_limit_s=args.rate_limit,
+        )
+    except OeisUnavailable as exc:
+        print(f"error: {exc}; {_OEIS_INSTALL_HINT}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(_sweep_results_data(results, args.n, args.min_match), indent=2))
+    else:
+        print(oeis_bulk.summarize(results))
+    return 0
+
+
+def _run_hunt(args: argparse.Namespace) -> int:
+    """The anomaly hunter over listed inputs or a --d-range fraction grid.
+
+    Text output is one ranked line per outlier (rank, score, top witness);
+    JSON is the {"top", "outliers"} payload with full witness statistics.
+    """
+    from . import hunt as hunt_mod
+
+    if args.d_range is not None and args.inputs:
+        print("error: give inputs or --d-range, not both", file=sys.stderr)
+        return 2
+    try:
+        if args.d_range is not None:
+            lo, hi = min(_parse_d_values(args.d_range)), max(_parse_d_values(args.d_range))
+            outliers = hunt_mod.hunt_fractions(
+                args.kind,
+                range(lo, hi + 1),
+                a_max=args.a_max,
+                top=args.top,
+                witnesses=args.witnesses,
+            )
+        else:
+            outliers = hunt_mod.hunt(
+                None, list(args.inputs), args.top, witnesses=args.witnesses
+            )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(_hunt_outliers_data(outliers, args.top), indent=2))
+    else:
+        for rank, outlier in enumerate(outliers, start=1):
+            print(_hunt_outlier_line(rank, outlier))
+    return 0
+
+
+def _run_dataset(args: argparse.Namespace) -> int:
+    """Write one dataset table (negation census or S(q) atlas) to a file.
+
+    Like batch/export this writes a file and owns its exit codes. The
+    format comes from the --to suffix (.csv or .jsonl) unless --format
+    overrides it; the columns are captured from the first generated row so
+    --json can report them without a second pass.
+    """
+    from pathlib import Path
+
+    from . import dataset as dataset_mod
+
+    fmt = args.format
+    if fmt is None:
+        suffix = Path(args.to).suffix.lower()
+        if suffix == ".csv":
+            fmt = "csv"
+        elif suffix == ".jsonl":
+            fmt = "jsonl"
+        else:
+            print(
+                "error: cannot infer the format from the suffix "
+                f"{suffix or '(none)'}; use a .csv or .jsonl path or --format",
+                file=sys.stderr,
+            )
+            return 2
+    try:
+        if args.which == "negation":
+            if not args.d_values:
+                print(
+                    'error: negation needs --d-values, e.g. --d-values 2..300',
+                    file=sys.stderr,
+                )
+                return 2
+            rows = dataset_mod.negation_dataset(
+                _parse_d_values(args.d_values), N=args.order
+            )
+        else:
+            if args.d_max is None:
+                print("error: atlas needs --d-max", file=sys.stderr)
+                return 2
+            rows = dataset_mod.atlas_dataset(args.d_max, args.a_max)
+
+        columns: list[str] = []
+
+        def _capture(source: Any) -> Any:
+            for row in source:
+                if not columns:
+                    columns.extend(row.keys())
+                yield row
+
+        writer = dataset_mod.to_csv if fmt == "csv" else dataset_mod.to_jsonl
+        count = writer(_capture(rows), args.to)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if getattr(args, "json", False):
+        print(
+            json.dumps(
+                {"rows_written": count, "path": args.to, "columns": columns},
+                indent=2,
+            )
+        )
+    else:
+        print(f"wrote {count} row(s) to {args.to} ({fmt})")
+        if args.which == "negation":
+            print(
+                "note: finite_verdict is a truncation-order heuristic "
+                f"(heuristic-order-{args.order}), not ground truth"
+            )
+    return 0
+
+
+def _run_mcp(args: argparse.Namespace) -> int:
+    """Start the MCP stdio server; a clear one-liner when mcp is missing."""
+    from . import mcp_server
+
+    return mcp_server.main()
+
+
+def _run_explain(args: argparse.Namespace) -> int:
+    """Send a result JSON to the Claude API and print the prose summary."""
+    from . import explain as explain_mod
+
+    return explain_mod.run_cli(args.file, model=args.model)
+
+
+# Dispatch table for the commands that own their exit codes and output
+# formats (checkpointed scans, exports, the certificate flow, the web UI).
+# Everything else renders one Result and goes through _HEADLESS_HANDLERS.
+_META_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
+    "doctor": _run_doctor_cmd,
+    "certify": _run_certify,
+    "batch": _run_batch,
+    "export": _run_export,
+    "saved": _run_saved,
+    "serve": _run_serve,
+    "conj": _run_conj,
+    "glue": _run_glue,
+    "check": _run_check,
+    "oeis-sweep": _run_oeis_sweep,
+    "hunt": _run_hunt,
+    "dataset": _run_dataset,
+    "mcp": _run_mcp,
+    "explain": _run_explain,
+}
 
 
 if __name__ == "__main__":

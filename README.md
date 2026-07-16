@@ -121,7 +121,10 @@ python3 -m pip install --upgrade qreals
 For a fraction p/s you get an exact rational function `[p/s]_q`, and for any
 real x you get the exact integer coefficients of its power series `[x]_q`, to
 any length. The math is from Morier-Genoud and Ovsienko, "q-deformed rationals
-and q-continued fractions" (Forum Math. Sigma, 2020).
+and q-continued fractions" (Forum Math. Sigma, 2020). The truncated-series
+path folds the continued fraction with polynomial multiplications and one
+final long division, measured about 300x faster at depth 512 than the
+inversion-per-term fold it falls back to.
 
 Every feature below is reachable three ways: a Python function, a `qreals`
 subcommand (add `--json` for machine output), and a card in `qreals serve`.
@@ -541,9 +544,39 @@ pip install "qreals[app,proof,oeis]"
 |---|---|
 | `[app]` | Guided arrow-key menu, run `qreals` with no arguments |
 | `[proof]` | Step-by-step certificates, run `qreals certify` |
-| `[oeis]` | OEIS lookup |
+| `[oeis]` | OEIS lookup, single (`qreals oeis`) and bulk (`qreals oeis-sweep`) |
 | `[features]` | numpy for `Fingerprint.as_numpy` |
 | `[fast]` | python-flint for fast exact polynomial arithmetic (large denominators) |
+| `[mcp]` | the MCP server, run `qreals mcp` (see below) |
+| `[ai]` | `qreals explain`, a Claude-written prose summary of a computed result |
+| `[completion]` | tab completion for the qreals command |
+
+## Use from AI agents (MCP)
+
+`qreals mcp` runs a Model Context Protocol server over stdio, so Claude and other
+MCP clients can compute q-deformations exactly instead of guessing them. The tools
+cover exact q-rationals, coefficients, factorisation, denominator dossiers, jump
+gaps, q-arithmetic, the negation panel (verdict labeled as a truncation-order
+heuristic), and OEIS lookup.
+
+```bash
+pip install "qreals[mcp]"
+claude mcp add qreals -- qreals mcp
+```
+
+Or in a client configuration file:
+
+```json
+{
+  "mcpServers": {
+    "qreals": { "command": "qreals", "args": ["mcp"] }
+  }
+}
+```
+
+The local web app doubles as an HTTP API: `qreals serve` exposes
+`POST /api/v1/compute` with request validation and interactive OpenAPI docs at
+`/docs`, alongside the JSON surface every subcommand already offers with `--json`.
 
 ## License
 

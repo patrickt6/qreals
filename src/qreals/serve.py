@@ -22,6 +22,7 @@ Start it with:          qreals serve
 
 from __future__ import annotations
 
+import hashlib
 import json
 import socket
 from typing import Any
@@ -985,14 +986,38 @@ def _idx(i: int) -> str:
     return "none" if i == -1 else str(i)
 
 
+# Depth cap for series/coefficient orders in the web cards. One request runs
+# synchronously per computation, so an unbounded order would let a single
+# card freeze the server; heavy runs belong in the CLI, which has no cap.
+_MAX_ORDER = 4096
+_ORDER_ARGS = frozenset({"n", "order", "n_coeffs"})
+
+# Bound for the q-integer card: [n]_q is a degree |n|-1 polynomial, and the
+# card typesets it in full, so anything past this is unusable in a browser.
+_MAX_QINT = 10_000
+
+
 def _int_arg(args: dict[str, Any], name: str, default: int) -> int:
     value = args.get(name)
     if value is None:
-        return int(default)
+        value = default
     try:
-        return int(value)
+        out = int(value)
     except (TypeError, ValueError):
-        return int(default)
+        out = int(default)
+    if name in _ORDER_ARGS:
+        out = max(0, min(out, _MAX_ORDER))
+    return out
+
+
+def _parse_qint(input_text: str) -> int:
+    nn = int(str(input_text).strip())
+    if abs(nn) > _MAX_QINT:
+        raise ValueError(
+            f"|n| is capped at {_MAX_QINT} in the web card; "
+            "use the qreals CLI for larger n"
+        )
+    return nn
 
 
 def _frieze_backend() -> Any:
@@ -1164,7 +1189,7 @@ def compute(
             }
 
         if op == "qint":
-            nn = int(str(input_text).strip())
+            nn = _parse_qint(input_text)
             res = _app.compute_qint(nn)
             data = res["data"]
             latex = "%s = %s" % (fmt.qint_tex(nn), fmt.to_tex(data["q_int"]))
@@ -2202,18 +2227,23 @@ def compute(
 def export_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     """Turn a {title, items:[{op,input,args,note}]} bundle into a standalone .tex."""
     from . import exports
-    sections = []
-    for it in bundle.get("items", []):
-        res = compute(str(it.get("op", "")), str(it.get("input", "")), it.get("args") or {})
-        if "error" in res:
-            continue
-        body = r"\[" + res["latex"] + r"\]"
-        rows = "".join(r"\item %s: %s" % (k, v) for k, v in (res.get("rows") or []))
-        note = (r"\par\textit{%s}" % it["note"]) if it.get("note") else ""
-        sections.append(r"\section*{%s}%s\begin{itemize}%s\end{itemize}%s" %
-                        (it.get("input", ""), body, rows or r"\item ~", note))
-    table = "\n".join(sections) or "(empty)"
-    return {"tex": exports.latex_document(table), "title": bundle.get("title", "qreals")}
+    try:
+        sections = []
+        for it in bundle.get("items", []):
+            if not isinstance(it, dict):
+                continue
+            res = compute(str(it.get("op", "")), str(it.get("input", "")), it.get("args") or {})
+            if "error" in res:
+                continue
+            body = r"\[" + res["latex"] + r"\]"
+            rows = "".join(r"\item %s: %s" % (k, v) for k, v in (res.get("rows") or []))
+            note = (r"\par\textit{%s}" % it["note"]) if it.get("note") else ""
+            sections.append(r"\section*{%s}%s\begin{itemize}%s\end{itemize}%s" %
+                            (it.get("input", ""), body, rows or r"\item ~", note))
+        table = "\n".join(sections) or "(empty)"
+        return {"tex": exports.latex_document(table), "title": bundle.get("title", "qreals")}
+    except Exception as exc:  # noqa: BLE001 - report the error to the page
+        return {"error": str(exc)}
 
 
 def _app_result_for(op: str, input_text: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -2224,7 +2254,7 @@ def _app_result_for(op: str, input_text: str, args: dict[str, Any]) -> dict[str,
         p, s = _app._parse_rational(input_text)
         return _app.compute_rational(p, s)
     if op == "qint":
-        return _app.compute_qint(int(str(input_text).strip()))
+        return _app.compute_qint(_parse_qint(input_text))
     if op == "coefficients":
         return _app.compute_coeffs(input_text, n)
     if op == "laurent":
@@ -2373,9 +2403,12 @@ def _asset(name: str) -> str:
     return (_res.files("qreals.web") / name).read_text(encoding="utf-8")
 
 
-# Content types for the vendored static files (the local MathJax bundle).
+# Content types for the vendored static files (MathJax, Plotly, MathLive).
+# .mjs must be a JavaScript type: browsers refuse dynamic import() of a
+# module served as octet-stream.
 _VENDOR_TYPES = {
     ".js": "application/javascript",
+    ".mjs": "application/javascript",
     ".woff": "font/woff",
     ".woff2": "font/woff2",
     ".css": "text/css",
@@ -2404,20 +2437,61 @@ def _vendor_asset(rel: str) -> tuple[bytes, str] | None:
     return data, _VENDOR_TYPES.get(ext, "application/octet-stream")
 
 
+# The two frontend assets served as revalidated static files. app.css and
+# app.js used to be inlined into every page load (~190 KB per hit); they are
+# now linked as /static/... with a content-hash ETag and Cache-Control:
+# no-cache, so the browser revalidates each load but only redownloads on a
+# real change.
+_STATIC_TYPES = {
+    "app.css": "text/css; charset=utf-8",
+    "app.js": "application/javascript; charset=utf-8",
+}
+
+
+def _static_asset(name: str) -> tuple[bytes, str, str] | None:
+    """One allowlisted static asset as (bytes, content type, ETag), or None.
+
+    app.js ships with the __OPS__ and __GROUPS__ tokens rewritten to read the
+    small registry the page injects inline (window.__QREALS_OPS__ and
+    window.__QREALS_GROUPS__), so the big file stays byte-stable across
+    registry-only changes and caches well.
+    """
+    ctype = _STATIC_TYPES.get(name)
+    if ctype is None:
+        return None
+    text = _asset(name)
+    if name == "app.js":
+        text = text.replace("__OPS__", "window.__QREALS_OPS__").replace(
+            "__GROUPS__", "window.__QREALS_GROUPS__"
+        )
+    data = text.encode("utf-8")
+    etag = '"%s"' % hashlib.sha256(data).hexdigest()[:32]
+    return data, ctype, etag
+
+
+# A tiny "q" glyph served at /favicon.ico as inline SVG; no binary asset
+# needed, and every page links it so loads stop 404-ing on the icon.
+_FAVICON_SVG = (
+    b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+    b'<rect width="32" height="32" rx="7" fill="#20456e"/>'
+    b'<text x="16" y="23" text-anchor="middle" font-family="Georgia,serif" '
+    b'font-size="21" font-weight="700" font-style="italic" fill="#ffffff">q'
+    b"</text></svg>"
+)
+
+
 def _index_html() -> str:
     """Compose the single-page app from the carved-out web assets.
 
-    The JS carries the OPERATIONS registry and group order via the __OPS__ and
-    __GROUPS__ tokens; CSS and JS are injected into the template. Nothing here
-    recomputes math.
+    The heavy CSS and JS are linked as /static/ files (see _static_asset);
+    only the small OPERATIONS registry and group order are injected inline
+    through the __OPS__ and __GROUPS__ tokens. Nothing here recomputes math.
     """
-    css = _asset("app.css")
-    js = (
-        _asset("app.js")
+    return (
+        _asset("template.html")
         .replace("__OPS__", json.dumps(OPERATIONS))
         .replace("__GROUPS__", json.dumps(GROUP_ORDER))
     )
-    return _asset("template.html").replace("__CSS__", css).replace("__JS__", js)
 
 
 def _lattice_html() -> str:
@@ -2425,11 +2499,11 @@ def _lattice_html() -> str:
 
     A self-contained template: its math comes typeset from /lattice/data
     (server-side TeX through the shared formatter emitters) and renders with
-    the same vendored MathJax, so the page works fully offline. The shared
-    app.css is injected through the __CSS__ token so the page wears the same
-    design system (tokens, fonts, panels) as the calculator.
+    the same vendored MathJax, so the page works fully offline. It links the
+    shared /static/app.css so the page wears the same design system (tokens,
+    fonts, panels) as the calculator.
     """
-    return _asset("lattice.html").replace("__CSS__", _asset("app.css"))
+    return _asset("lattice.html")
 
 
 def _lattice_payload(d: Any, a: Any) -> dict[str, Any]:
@@ -2654,6 +2728,84 @@ def _have(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
 
+# --------------------------------------------------------------------------
+# The JSON POST surface shared by the FastAPI and Flask builders. Each core
+# takes the parsed JSON payload (always a dict) and returns the result dict;
+# the two builders add only their own request plumbing around these and apply
+# the same status rule, so their bodies and codes cannot drift apart.
+# --------------------------------------------------------------------------
+
+_BAD_JSON_ERROR = "request body is not valid JSON"
+
+
+def _compute_core(payload: dict[str, Any]) -> dict[str, Any]:
+    return compute(
+        str(payload.get("op", "")),
+        str(payload.get("input", "")),
+        payload.get("args") or {},
+    )
+
+
+def _preview_core(payload: dict[str, Any]) -> dict[str, Any]:
+    return preview(
+        str(payload.get("op", "")),
+        str(payload.get("input", "")),
+        payload.get("args") or {},
+    )
+
+
+def _certificate_core(payload: dict[str, Any]) -> dict[str, Any]:
+    return compute_certificate(
+        str(payload.get("op", "")),
+        str(payload.get("input", "")),
+        payload.get("args") or {},
+    )
+
+
+_JSON_POST_ROUTES: dict[str, Any] = {
+    "/compute": _compute_core,
+    "/preview": _preview_core,
+    "/certificate": _certificate_core,
+    "/export": export_bundle,
+}
+
+
+def _response_status(result: Any) -> int:
+    """The HTTP status for a compute-style result payload.
+
+    200 on success; 400 for an unknown operation (a malformed request, not a
+    math failure); 422 for any other error payload (the request was well
+    formed but the engine rejected the input). The body shape stays
+    {"error": ...} either way, so the page reads the same JSON regardless of
+    status.
+    """
+    if not isinstance(result, dict) or "error" not in result:
+        return 200
+    if str(result.get("error", "")).startswith("unknown operation"):
+        return 400
+    return 422
+
+
+def _v1_ops_payload() -> dict[str, Any]:
+    """The GET /api/v1/ops body: the operation registry and its group order."""
+    return {"operations": OPERATIONS, "groups": GROUP_ORDER}
+
+
+def _v1_manual_errors(body: dict[str, Any]) -> list[dict[str, Any]]:
+    """A manual mirror of the v1 pydantic validation, for the Flask builder
+    (pydantic ships with FastAPI, not with Flask). Returns a list of
+    {loc, msg} entries, empty when the body is a valid v1 compute request."""
+    detail: list[dict[str, Any]] = []
+    for field in ("op", "input"):
+        if field not in body:
+            detail.append({"loc": [field], "msg": "Field required"})
+        elif not isinstance(body[field], str):
+            detail.append({"loc": [field], "msg": "Input should be a valid string"})
+    if "args" in body and not isinstance(body["args"], dict):
+        detail.append({"loc": ["args"], "msg": "Input should be a valid dictionary"})
+    return detail
+
+
 def build_app() -> Any:
     """Build and return the web application (FastAPI app, else Flask app).
 
@@ -2671,10 +2823,11 @@ def build_app() -> Any:
 
 def _build_fastapi_app() -> Any:
     from fastapi import FastAPI
+    from pydantic import BaseModel, Field, ValidationError
     from starlette.requests import Request
-    from starlette.responses import HTMLResponse, JSONResponse
+    from starlette.responses import HTMLResponse, JSONResponse, Response
 
-    application = FastAPI(title="qreals", docs_url=None, redoc_url=None)
+    application = FastAPI(title="qreals", docs_url="/docs", redoc_url=None)
 
     # Plain Starlette handlers registered with add_route, so FastAPI never
     # inspects their signatures for query/body parameters. This sidesteps the
@@ -2684,79 +2837,123 @@ def _build_fastapi_app() -> Any:
     async def index(_request: Request) -> Any:
         return HTMLResponse(_index_html())
 
-    async def _payload(request: Request) -> dict[str, Any]:
+    # Computations run sympy synchronously and can take seconds; run them in
+    # Starlette's threadpool so one heavy card does not freeze the event loop
+    # (and with it every other open tab) for the duration.
+    from starlette.concurrency import run_in_threadpool
+
+    def _make_json_post(core: Any) -> Any:
+        """One SPA POST endpoint over a shared core from _JSON_POST_ROUTES."""
+
+        async def endpoint(request: Request) -> Any:
+            raw = await request.body()
+            if not raw:
+                payload: Any = {}
+            else:
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    payload = None
+            if not isinstance(payload, dict):
+                return JSONResponse({"error": _BAD_JSON_ERROR}, status_code=400)
+            result = await run_in_threadpool(core, payload)
+            return JSONResponse(result, status_code=_response_status(result))
+
+        return endpoint
+
+    # The versioned API. Validation goes through a pydantic model applied
+    # with model_validate inside a raw handler, never through a typed FastAPI
+    # parameter: the future-annotations import breaks FastAPI's signature
+    # inspection (see the add_route note above), and model_validate avoids
+    # that trap entirely.
+    class ComputeRequest(BaseModel):
+        op: str
+        input: str
+        args: dict[str, Any] = Field(default_factory=dict)
+
+    async def v1_compute(request: Request) -> Any:
         raw = await request.body()
+        if not raw:
+            body: Any = {}
+        else:
+            try:
+                body = json.loads(raw.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return JSONResponse({"error": _BAD_JSON_ERROR}, status_code=400)
         try:
-            return json.loads(raw.decode("utf-8")) if raw else {}
-        except json.JSONDecodeError:
-            return {}
+            req = ComputeRequest.model_validate(body)
+        except ValidationError as exc:
+            detail = [
+                {"loc": list(err.get("loc", ())), "msg": str(err.get("msg", ""))}
+                for err in exc.errors()
+            ]
+            return JSONResponse(
+                {"error": "invalid request", "detail": detail}, status_code=422
+            )
+        result = await run_in_threadpool(compute, req.op, req.input, req.args)
+        return JSONResponse(result, status_code=_response_status(result))
 
-    async def compute_endpoint(request: Request) -> Any:
-        payload = await _payload(request)
-        result = compute(
-            str(payload.get("op", "")),
-            str(payload.get("input", "")),
-            payload.get("args") or {},
-        )
-        return JSONResponse(result)
-
-    async def preview_endpoint(request: Request) -> Any:
-        payload = await _payload(request)
-        result = preview(
-            str(payload.get("op", "")),
-            str(payload.get("input", "")),
-            payload.get("args") or {},
-        )
-        return JSONResponse(result)
-
-    async def certificate_endpoint(request: Request) -> Any:
-        payload = await _payload(request)
-        result = compute_certificate(
-            str(payload.get("op", "")),
-            str(payload.get("input", "")),
-            payload.get("args") or {},
-        )
-        return JSONResponse(result)
-
-    async def export_endpoint(request: Request) -> Any:
-        payload = await _payload(request)
-        return JSONResponse(export_bundle(payload))
+    async def v1_ops(_request: Request) -> Any:
+        return JSONResponse(_v1_ops_payload())
 
     async def version_endpoint(_request: Request) -> Any:
-        return JSONResponse(check_for_update())
+        # check_for_update does a blocking PyPI fetch on its first call; keep
+        # that off the event loop too.
+        return JSONResponse(await run_in_threadpool(check_for_update))
 
     async def vendor_endpoint(request: Request) -> Any:
-        from starlette.responses import Response
-
         found = _vendor_asset(str(request.path_params.get("path", "")))
         if found is None:
             return Response(status_code=404)
         data, ctype = found
         return Response(content=data, media_type=ctype)
 
+    async def static_endpoint(request: Request) -> Any:
+        found = _static_asset(str(request.path_params.get("name", "")))
+        if found is None:
+            return Response(status_code=404)
+        data, ctype, etag = found
+        headers = {"ETag": etag, "Cache-Control": "no-cache"}
+        if etag in (request.headers.get("if-none-match") or ""):
+            return Response(status_code=304, headers=headers)
+        return Response(content=data, media_type=ctype, headers=headers)
+
+    async def favicon_endpoint(_request: Request) -> Any:
+        return Response(
+            content=_FAVICON_SVG,
+            media_type="image/svg+xml",
+            headers={"Cache-Control": "no-cache"},
+        )
+
     async def lattice_page(_request: Request) -> Any:
         return HTMLResponse(_lattice_html())
 
     async def lattice_data_endpoint(request: Request) -> Any:
         qp = request.query_params
-        return JSONResponse(_lattice_payload(qp.get("d"), qp.get("a")))
+        return JSONResponse(
+            await run_in_threadpool(_lattice_payload, qp.get("d"), qp.get("a"))
+        )
 
     application.add_route("/vendor/{path:path}", vendor_endpoint, methods=["GET"])
+    application.add_route("/static/{name}", static_endpoint, methods=["GET"])
+    application.add_route("/favicon.ico", favicon_endpoint, methods=["GET"])
     application.add_route("/", index, methods=["GET"])
     application.add_route("/lattice", lattice_page, methods=["GET"])
     application.add_route("/lattice/data", lattice_data_endpoint, methods=["GET"])
-    application.add_route("/compute", compute_endpoint, methods=["POST"])
-    application.add_route("/preview", preview_endpoint, methods=["POST"])
-    application.add_route("/certificate", certificate_endpoint, methods=["POST"])
-    application.add_route("/export", export_endpoint, methods=["POST"])
+    for path, core in _JSON_POST_ROUTES.items():
+        application.add_route(path, _make_json_post(core), methods=["POST"])
+    application.add_route("/api/v1/compute", v1_compute, methods=["POST"])
+    application.add_route("/api/v1/ops", v1_ops, methods=["GET"])
     application.add_route("/version", version_endpoint, methods=["GET"])
     return application
 
 
 def _build_flask_app() -> Any:
-    from flask import Flask, jsonify, request
+    from flask import Flask, Response, jsonify, request
 
-    application = Flask(__name__)
+    # static_folder=None: Flask's built-in /static route would shadow the
+    # explicit one below (which adds the ETag revalidation contract).
+    application = Flask(__name__, static_folder=None)
 
     @application.get("/")
     def index() -> Any:
@@ -2772,49 +2969,71 @@ def _build_flask_app() -> Any:
             _lattice_payload(request.args.get("d"), request.args.get("a"))
         )
 
-    @application.post("/compute")
-    def compute_endpoint() -> Any:
-        payload = request.get_json(force=True, silent=True) or {}
-        result = compute(
-            str(payload.get("op", "")),
-            str(payload.get("input", "")),
-            payload.get("args") or {},
-        )
-        return jsonify(result)
+    def _payload_or_none() -> Any:
+        # None means the body was present but not a JSON object; an empty
+        # body means {} (parity with the FastAPI builder).
+        raw = request.get_data()
+        if not raw:
+            return {}
+        payload = request.get_json(force=True, silent=True)
+        return payload if isinstance(payload, dict) else None
 
-    @application.post("/preview")
-    def preview_endpoint() -> Any:
-        payload = request.get_json(force=True, silent=True) or {}
-        result = preview(
-            str(payload.get("op", "")),
-            str(payload.get("input", "")),
-            payload.get("args") or {},
-        )
-        return jsonify(result)
+    def _register_json_post(path: str, core: Any) -> None:
+        """One SPA POST endpoint over a shared core from _JSON_POST_ROUTES."""
 
-    @application.post("/certificate")
-    def certificate_endpoint() -> Any:
-        payload = request.get_json(force=True, silent=True) or {}
-        result = compute_certificate(
-            str(payload.get("op", "")),
-            str(payload.get("input", "")),
-            payload.get("args") or {},
-        )
-        return jsonify(result)
+        def endpoint() -> Any:
+            payload = _payload_or_none()
+            if payload is None:
+                return jsonify({"error": _BAD_JSON_ERROR}), 400
+            result = core(payload)
+            return jsonify(result), _response_status(result)
 
-    @application.post("/export")
-    def export_endpoint() -> Any:
-        payload = request.get_json(force=True, silent=True) or {}
-        return jsonify(export_bundle(payload))
+        endpoint.__name__ = "post_" + path.strip("/").replace("/", "_")
+        application.post(path)(endpoint)
+
+    for path, core in _JSON_POST_ROUTES.items():
+        _register_json_post(path, core)
+
+    @application.post("/api/v1/compute")
+    def v1_compute() -> Any:
+        payload = _payload_or_none()
+        if payload is None:
+            return jsonify({"error": _BAD_JSON_ERROR}), 400
+        detail = _v1_manual_errors(payload)
+        if detail:
+            return jsonify({"error": "invalid request", "detail": detail}), 422
+        result = _compute_core(payload)
+        return jsonify(result), _response_status(result)
+
+    @application.get("/api/v1/ops")
+    def v1_ops() -> Any:
+        return jsonify(_v1_ops_payload())
 
     @application.get("/version")
     def version_endpoint() -> Any:
         return jsonify(check_for_update())
 
+    @application.get("/favicon.ico")
+    def favicon_endpoint() -> Any:
+        return Response(
+            _FAVICON_SVG,
+            mimetype="image/svg+xml",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @application.get("/static/<name>")
+    def static_endpoint(name: str) -> Any:
+        found = _static_asset(name)
+        if found is None:
+            return Response("not found", status=404)
+        data, ctype, etag = found
+        headers = {"ETag": etag, "Cache-Control": "no-cache"}
+        if etag in (request.headers.get("If-None-Match") or ""):
+            return Response(status=304, headers=headers)
+        return Response(data, mimetype=ctype, headers=headers)
+
     @application.get("/vendor/<path:rel>")
     def vendor_endpoint(rel: str) -> Any:
-        from flask import Response
-
         found = _vendor_asset(rel)
         if found is None:
             return Response("not found", status=404)

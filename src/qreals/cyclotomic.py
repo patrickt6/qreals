@@ -104,6 +104,11 @@ class CyclotomicView:
     is_full_qint: bool
     S_at_1: int
     equality_locus: bool
+    # The ascii factored forms (Phi(e) spelling), captured at build time from
+    # the same QRealFactor as everything else so view_data never has to
+    # re-factor the fraction.
+    R_ascii: str = ""
+    S_ascii: str = ""
 
 
 _CLASS_LABEL = {
@@ -169,9 +174,13 @@ def cyclotomic_view(x: Fraction | str | tuple[int, int] | list[int]) -> Cyclotom
 
     x is read by factor_qreal (a Fraction, an 'a/b' string, an (a, b) pair, or
     the engine's '(a)/(b)' spelling). Everything returned is exact over Z[q].
+
+    The fraction is factored exactly once: the QRealFactor from factor_qreal
+    is passed straight into s_properties as its precomputed record, and the
+    ascii factored forms view_data needs are captured here too.
     """
     f = factor_qreal(x)
-    p = s_properties(x)
+    p = s_properties(x, precomputed=f)
     R = numerator_expr(f)
     S = denominator_expr(f)
 
@@ -210,6 +219,8 @@ def cyclotomic_view(x: Fraction | str | tuple[int, int] | list[int]) -> Cyclotom
         is_full_qint=p.is_full_qint,
         S_at_1=p.S_at_1,
         equality_locus=p.equality_locus,
+        R_ascii=_factored_ascii(f.content_R, f.factors_R),
+        S_ascii=_factored_ascii(f.content_S, f.factors_S),
     )
 
 
@@ -220,8 +231,8 @@ def view_data(view: CyclotomicView) -> dict:
         "a": v.a,
         "d": v.d,
         "k": v.k,
-        "R": _factored_ascii_from_view(v, "R"),
-        "S": _factored_ascii_from_view(v, "S"),
+        "R": v.R_ascii,
+        "S": v.S_ascii,
         "R_tex": v.R_tex,
         "S_tex": v.S_tex,
         "headline_tex": v.headline_tex,
@@ -259,19 +270,6 @@ def view_data(view: CyclotomicView) -> dict:
         "S_at_1": v.S_at_1,
         "equality_locus": v.equality_locus,
     }
-
-
-def _factored_ascii_from_view(v: CyclotomicView, which: str) -> str:
-    """Re-derive the ascii factored R or S from the engine factor record.
-
-    Kept separate so view_data stays a pure data transform; the heavy lifting
-    is in factor_qreal, recovered here through a fresh factorisation only when
-    JSON is requested.
-    """
-    f = factor_qreal((v.a, v.d))
-    if which == "R":
-        return _factored_ascii(f.content_R, f.factors_R)
-    return _factored_ascii(f.content_S, f.factors_S)
 
 
 def view_tex(view: CyclotomicView) -> str:

@@ -12,38 +12,12 @@ coefficient, which the test suite checks.
 
 from __future__ import annotations
 
-import sympy as sp
-
-from . import series
 from ._parsing import parse_real
+from .continuant import continuant_fast, continuant_series
+from .continuant import q_int_qinv_series as q_int_qinv_series
+from .continuant import q_int_series as q_int_series
 from .continued_fraction import cf_partials, make_even_length
 from .series import Series
-
-
-def q_int_series(n: int, prec: int) -> Series:
-    """[n]_q as a series at q = 0, truncated to q^prec."""
-    n = int(n)
-    if n == 0:
-        return 0, []
-    if n > 0:
-        return series.normalise((0, [1] * min(n, prec)))
-    # [-m]_q = -[m]_q / q^m, so valuation -m with all coefficients -1.
-    m = -n
-    return series.trim(series.normalise((-m, [-1] * m)), prec)
-
-
-def q_int_qinv_series(n: int, prec: int) -> Series:
-    """[n]_{q^{-1}} = q^{-(n-1)} [n]_q for n > 0, truncated to q^prec."""
-    n = int(n)
-    if n == 0:
-        return 0, []
-    if n > 0:
-        coeffs = [1] * min(n, prec - (-(n - 1)))
-        return series.trim(series.normalise((-(n - 1), coeffs)), prec)
-    m = -n
-    return series.scalar_mul(
-        series.mul(q_int_qinv_series(m, prec), series.q_pow(m, prec), prec), -1, prec
-    )
 
 
 def mgo_build_series(a: list[int], prec: int) -> Series:
@@ -51,27 +25,9 @@ def mgo_build_series(a: list[int], prec: int) -> Series:
 
     Odd positions (1-indexed) carry [a_i]_q with q^{a_i} above; even positions
     carry [a_i]_{q^{-1}} with q^{-a_i} above. The recursion folds from the
-    innermost term outward.
+    innermost term outward; the fold lives in `continuant.continuant_series`.
     """
-    n = len(a)
-    if n == 0:
-        return 0, []
-
-    def term(i: int, ai: int) -> Series:
-        return (
-            q_int_series(ai, prec) if (i + 1) % 2 == 1 else q_int_qinv_series(ai, prec)
-        )
-
-    def num_above(i: int, ai: int) -> Series:
-        return series.q_pow(ai if (i + 1) % 2 == 1 else -ai, prec)
-
-    result = term(n - 1, a[n - 1])
-    for i in range(n - 2, -1, -1):
-        inv = series.invert(result, prec)
-        result = series.add(
-            term(i, a[i]), series.mul(num_above(i, a[i]), inv, prec), prec
-        )
-    return result
+    return continuant_series(a, prec)
 
 
 def q_real_truncated(x_repr: str, N: int) -> list[int]:
@@ -109,7 +65,16 @@ def q_real_truncated(x_repr: str, N: int) -> list[int]:
         return out
     a = make_even_length(a)
     prec = N + 5
-    v, coeffs = mgo_build_series(a, prec)
+    try:
+        # Fast path: multiplication-only fold with one final long division,
+        # `continuant.continuant_fast`. It covers CF words with a positive
+        # leading partial quotient (x >= 1) and raises ArithmeticError
+        # otherwise, in which case the exact inversion-per-term fold below
+        # takes over.
+        return continuant_fast(a, prec)[:N]
+    except ArithmeticError:
+        pass
+    v, coeffs = continuant_series(a, prec)
     out = [0] * N
     for k in range(N):
         idx = k - v

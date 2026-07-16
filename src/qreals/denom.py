@@ -58,7 +58,7 @@ from math import gcd, lcm
 import sympy as sp
 
 from . import formatter
-from .factor import _cyclotomic_index
+from .factor import _cyclotomic_index, strip_cyclotomic
 from .rational import q, q_rational_pair
 
 
@@ -163,19 +163,14 @@ def _cyclotomic_structure(
     division above is near-instant; callers that only need the cyclotomic
     picture (kept, dropped, repeated, or the non-cyclotomic verdict) opt out
     of the expensive step at large d.
+
+    The trial-division loop is the shared `factor.strip_cyclotomic`; this
+    wrapper supplies the divisor-of-d index iterator and the cofactor
+    handling.
     """
-    mult: dict[int, int] = {}
-    rem = S
-    for e in sorted(int(t) for t in sp.divisors(d)):
-        if e < 2:
-            continue
-        phi = sp.Poly(sp.cyclotomic_poly(e, q), q, domain="ZZ")
-        while rem.degree() >= phi.degree():
-            quo, r = sp.div(rem, phi)
-            if not r.is_zero:
-                break
-            rem = quo
-            mult[e] = mult.get(e, 0) + 1
+    mult, rem = strip_cyclotomic(
+        S, (e for e in sorted(int(t) for t in sp.divisors(d)) if e >= 2)
+    )
     cofactor: list[tuple[sp.Expr, int]] = []
     if rem.degree() > 0 and not factor_cofactor:
         return mult, [(rem.as_expr(), 1)]
@@ -385,11 +380,14 @@ def dossier_tex(dossier: DenomDossier) -> str:
         r"\text{class} &= \text{" + p.klass + r"}, \quad "
         + formatter.congruence_tex("a^2", str((p.a * p.a) % p.d), p.d),
     ]
+    # Hoisted out of the f-string below: a backslash inside an f-string
+    # replacement field is Python 3.12+ syntax, and qreals supports 3.11.
+    thin_space = r" \, "
     for s in p.splits:
         lines.append(
             r"\\ "
             + rf"{p.d} &= {s.d_plus} \cdot {s.d_minus}: \quad "
-            + rf"{formatter.fraction_tex(formatter.qint_tex(s.d_plus) + r' \, ' + formatter.qint_tex(s.d_minus), 'S')}"
+            + rf"{formatter.fraction_tex(formatter.qint_tex(s.d_plus) + thin_space + formatter.qint_tex(s.d_minus), 'S')}"
             + rf" = {split_discrepancy_tex(s)} \quad \text{{({s.klass})}}"
         )
     lines.append(r"\end{align*}")

@@ -193,6 +193,27 @@ def finite_xnegx(x: str, order: int = 48) -> bool:
 # ----------------------------------------------------------------------------
 # radius of convergence estimate
 # ----------------------------------------------------------------------------
+def radius_from_coeffs(coeffs: list[int]) -> float:
+    """Running-max root-test radius estimate from a coefficient list.
+
+    The coefficient-list core of `radius`, shared with QReal.radius_estimate
+    so the estimator exists exactly once. coeffs is [c_0, c_1, ...]; the slope
+    max runs over 1 <= k < len(coeffs). Returns +inf when no coefficient past
+    the constant term is nonzero (see `radius` for the finite-N caveats).
+    """
+    max_slope: float | None = None
+    for k in range(1, len(coeffs)):
+        c = coeffs[k]
+        if c == 0:
+            continue
+        slope = math.log(abs(c)) / k
+        if max_slope is None or slope > max_slope:
+            max_slope = slope
+    if max_slope is None:
+        return math.inf
+    return math.exp(-max_slope)
+
+
 def radius(x: str, N: int) -> float:
     """Running-max root-test estimate of the radius of convergence of [x]_q.
 
@@ -210,15 +231,4 @@ def radius(x: str, N: int) -> float:
     """
     if N < 2:
         raise ValueError("N must be at least 2 to estimate a slope")
-    coeffs = q_real_truncated(x, N)
-    max_slope: float | None = None
-    for k in range(1, len(coeffs)):
-        c = coeffs[k]
-        if c == 0:
-            continue
-        slope = math.log(abs(c)) / k
-        if max_slope is None or slope > max_slope:
-            max_slope = slope
-    if max_slope is None:
-        return math.inf
-    return math.exp(-max_slope)
+    return radius_from_coeffs(q_real_truncated(x, N))
