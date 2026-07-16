@@ -532,6 +532,49 @@ worked example:
 
 <!-- TOOL-SECTIONS:END -->
 
+## Negation-sum sweeps: G(x) = [x]_q + [-x]_q for a + b*sqrt(D)
+
+`qreals.quadratic` and `qreals.negation` add an exact-arithmetic engine for
+studying G(x) = [x]_q + [-x]_q on quadratic irrationals x = a + b*sqrt(D),
+with a, b rational and D a squarefree integer, alongside an exact closed-form
+path for rational x.
+
+- `qreals.quadratic.QuadraticIrrational` holds x = (p + r*sqrt(D)) / s exactly
+  as integers p, r, s (s > 0, reduced), with exact add, subtract, scalar
+  multiplication, reciprocal, negation, floor, and ceiling (no floating point
+  in any comparison), plus a Hirzebruch-Jung (ceiling) continued-fraction
+  iterator with period detection.
+
+- `qreals.negation.negation_sum_exact(x, depth)` returns a verdict for
+  G(x): for rational x it is exact ("finite" with the Laurent polynomial, or
+  "infinite"), computed as a closed-form rational function of q; for
+  x = a + b*sqrt(D) it locks Laurent coefficients by agreement between
+  successive Hirzebruch-Jung convergents and reports "finite_looking",
+  "infinite" (with the first confirmed nonzero tail coefficient), or
+  "insufficient_depth".
+
+- `qreals.arithmetic.negation_sum` is routed through this exact machinery for
+  rational and quadratic inputs, falling back to the original truncated-series
+  computation for other reals (transcendentals such as pi).
+
+The `negation-sweep` subcommand builds an evidence grid at a fixed D over
+growing denominators of a and b, and writes one CSV row per grid point plus a
+running SUMMARY.md:
+
+```text
+qreals negation-sweep --D 2 --qa-max 8 --qb-max 8 --pa-max 20 --pb-max 20 \
+    --depth 120 --min-zero-run 60 --out out-dir --workers 4 --resume
+```
+
+Each worker process owns a CSV shard file under `out-dir` (`shard_0.csv`,
+`shard_1.csv`, ...) and flushes after every row; `--resume` reads every shard
+already present and skips grid points already computed. `SUMMARY.md` is
+rewritten periodically with counts by verdict, on-axis vs off-axis splits,
+and any off-axis `finite_looking` hit flagged in capitals (an on-axis point
+has b an integer and a = 0, i.e. x is an integer multiple of sqrt(D); an
+off-axis finite hit would be evidence against the trace-zero-quadratic
+criterion for Example 6.4 and is the reason the summary calls it out).
+
 ## Optional extras
 
 The web app works out of the box. These extras add the terminal interfaces:
