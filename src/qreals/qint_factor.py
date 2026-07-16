@@ -50,8 +50,9 @@ from dataclasses import dataclass
 from typing import Iterable
 
 import sympy as sp
-from sympy import cyclotomic_poly, mobius
+from sympy import mobius
 
+from .factor import strip_cyclotomic
 from .rational import q, q_int
 
 
@@ -104,36 +105,23 @@ def _cyclotomic_exponents(P: sp.Poly) -> tuple[dict[int, int], sp.Expr]:
     Phi(d) divides P^k for some k >= 1. leftover is the unit content that did
     not match any cyclotomic factor; for a clean q-integer product the
     leftover is +-1.
+
+    The trial-division loop is the shared `factor.strip_cyclotomic`; this
+    wrapper supplies the full index span 2..deg+2 and reads the remainder as
+    a unit-content check.
     """
     expr = sp.expand(P.as_expr())
     poly = sp.Poly(expr, q)
     if poly.is_zero:
         raise ValueError("P is the zero polynomial; not a product of q-integers")
 
-    deg = poly.degree()
-    exponents: dict[int, int] = {}
-
     # Largest d we ever need: Phi(d) has degree phi(d) >= 1, so d <= deg(P) + 1
     # is more than enough (degree of [n]_q is n - 1, so n - 1 <= deg <= n - 1
     # for the largest factor; using deg + 2 gives a safety margin).
-    d_max = deg + 2
+    d_max = poly.degree() + 2
 
-    for d in range(2, d_max + 1):
-        phi_d = sp.Poly(cyclotomic_poly(d, q), q)
-        # Trial-divide by Phi(d) while the division is exact.
-        while True:
-            quotient, remainder = sp.div(poly, phi_d, q)
-            if remainder.is_zero:
-                poly = quotient
-                exponents[d] = exponents.get(d, 0) + 1
-                if poly.degree() == 0:
-                    break
-            else:
-                break
-        if poly.degree() == 0:
-            break
-
-    leftover = sp.simplify(poly.as_expr())
+    exponents, rem = strip_cyclotomic(poly, range(2, d_max + 1))
+    leftover = sp.simplify(rem.as_expr())
     return exponents, leftover
 
 

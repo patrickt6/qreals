@@ -85,14 +85,13 @@ let currentOp = null;
 let lastResult = null;       // {op, input, args, latex, text, rows}
 let currentControls = {};    // field name -> { kind, get() }
 
-// ---- MathLive (optional; falls back to plain inputs if the CDN is down) --
+// ---- MathLive (vendored; falls back to plain inputs if it fails to load) --
 let MathfieldElement = null;
 try {
-  const mod = await import("https://cdn.jsdelivr.net/npm/mathlive@0.109.2/mathlive.min.mjs");
+  const mod = await import("/vendor/mathlive/mathlive.min.mjs");
   MathfieldElement = mod.MathfieldElement;
-  const MLBASE = "https://cdn.jsdelivr.net/npm/mathlive@0.109.2";
-  MathfieldElement.fontsDirectory = MLBASE + "/fonts";
-  MathfieldElement.soundsDirectory = MLBASE + "/sounds";
+  MathfieldElement.fontsDirectory = "/vendor/mathlive/fonts";
+  MathfieldElement.soundsDirectory = null;
 } catch(e){ MathfieldElement = null; }
 
 // ---- LaTeX (from the math editor) -> engine syntax ----------------------
@@ -179,6 +178,49 @@ function toast(msg){
   toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
 }
 
+// ---- fetch layer --------------------------------------------------------
+// One helper behind every backend POST (compute, preview, certificate,
+// export): an AbortController with a 60 s default timeout, JSON parsed on
+// every status (the server now sends {"error": ...} bodies with 400/422 as
+// well as 200), and a uniform {ok, data, error, aborted, timedOut} result.
+// Callers that want a visible Cancel button pass their own controller in
+// opts.controller and abort it from the button.
+const FETCH_TIMEOUT_MS = 60000;
+function apiCall(path, body, opts){
+  opts = opts || {};
+  const ctl = opts.controller || new AbortController();
+  const timeoutMs = (opts.timeoutMs != null) ? opts.timeoutMs : FETCH_TIMEOUT_MS;
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, timeoutMs);
+  return fetch(path, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body), signal: ctl.signal
+  }).then(async (res) => {
+    let data = null;
+    try { data = await res.json(); } catch(e){ data = null; }
+    // an "error" key is the error regardless of the HTTP status
+    if (data && data.error) return { ok: false, error: String(data.error), data };
+    if (!res.ok) return { ok: false, error: "the server answered HTTP " + res.status };
+    if (data == null) return { ok: false, error: "the server sent an unreadable response" };
+    return { ok: true, data };
+  }).catch((e) => {
+    if (ctl.signal.aborted || (e && e.name === "AbortError")){
+      return timedOut
+        ? { ok: false, aborted: true, timedOut: true,
+            error: "timed out after " + Math.round(timeoutMs / 1000) + " s" }
+        : { ok: false, aborted: true, error: "cancelled" };
+    }
+    return { ok: false, error: "could not reach the server: " + e };
+  }).finally(() => clearTimeout(timer));
+}
+// The in-flight state shown while a computation runs: spinner, label, and a
+// live Cancel button (wired by the caller to its AbortController).
+function computingHtml(){
+  return '<div class="result-loading"><span class="spinner"></span>' +
+    '<span>Computing…</span>' +
+    '<button class="mini cancel-btn" type="button">Cancel</button></div>';
+}
+
 // ---- reproducible sharing (Gate 7) -------------------------------------
 async function _deflate(str){
   const cs = new CompressionStream("deflate");
@@ -219,13 +261,14 @@ function _download(name, text, type){ const b = new Blob([text], {type:type||"te
 function exportQreals(){ _download("comparison.qreals", JSON.stringify(_bundleFromCompare()), "application/json"); }
 
 async function exportTex(){
-  const out = await fetch("/export",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(_bundleFromCompare())}).then(r=>r.json());
-  _download("qreals.tex", out.tex, "application/x-tex");
+  const out = await apiCall("/export", _bundleFromCompare());
+  if (!out.ok){ toast("Export failed: " + out.error); return; }
+  _download("qreals.tex", out.data.tex, "application/x-tex");
 }
 async function openInOverleaf(){
-  const out = await fetch("/export",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(_bundleFromCompare())}).then(r=>r.json());
+  const res = await apiCall("/export", _bundleFromCompare());
+  if (!res.ok){ toast("Export failed: " + res.error); return; }
+  const out = res.data;
   const f = document.createElement("form"); f.method="POST"; f.action="https://www.overleaf.com/docs"; f.target="_blank";
   const i = document.createElement("input"); i.type="hidden"; i.name="encoded_snip"; i.value=out.tex; f.appendChild(i);
   document.body.appendChild(f); f.submit(); f.remove();
@@ -375,6 +418,146 @@ async function maybeReceiveShare(){
   receiveSharePayload(m[1], true);
 }
 
+// ---- deep links (#op= and #x=) and browser history -----------------------
+// #op= encodes one computation {op, input, args} as base64url JSON; opening
+// such a link lands on that op view and runs it. #x= encodes a dossier input
+// string. The old #s= share scheme (deflated bundles) keeps working unchanged.
+function _b64uEnc(obj){
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  let s = "";
+  bytes.forEach((b) => { s += String.fromCharCode(b); });
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function _b64uDec(str){
+  const b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+function opDeepLink(op, input, args){
+  return location.origin + location.pathname + "#op=" +
+    _b64uEnc({ op, input, args: args || {} });
+}
+function dossierDeepLink(input){
+  return location.origin + location.pathname + "#x=" + _b64uEnc(String(input));
+}
+// History integration: in-app navigation pushes an entry (so browser Back
+// moves between home, op views, and dossiers); popstate-driven navigation
+// must NOT push again, guarded by _routing.
+let _routing = false;
+function pushRoute(hash){
+  if (_routing) return;
+  try { history.pushState({ qreals: true }, "", hash || location.pathname); }
+  catch(e){ /* history can be unavailable in odd embeds; navigation still works */ }
+}
+// Open whatever the current hash names. Returns true when it routed.
+function routeFromHash(){
+  const h = location.hash || "";
+  let m = h.match(/#op=([A-Za-z0-9\-_]+)/);
+  if (m){
+    let d = null;
+    try { d = _b64uDec(m[1]); } catch(e){ d = null; }
+    if (d && d.op && OPS[d.op]){
+      _routing = true;
+      openOp(d.op, Object.assign({ input: d.input }, d.args || {}));
+      _routing = false;
+      if (d.input != null) runCompute();
+      return true;
+    }
+    toast("Couldn't read that qreals link");
+    return false;
+  }
+  m = h.match(/#x=([A-Za-z0-9\-_]+)/);
+  if (m){
+    let d = null;
+    try { d = _b64uDec(m[1]); } catch(e){ d = null; }
+    if (typeof d === "string" && d.trim()){
+      _routing = true;
+      openDossier(d);
+      _routing = false;
+      return true;
+    }
+    toast("Couldn't read that qreals link");
+    return false;
+  }
+  return false;
+}
+// Every route transition here changes the fragment, so one hashchange
+// listener covers both browser Back/Forward over pushed entries AND a deep
+// link pasted into the address bar of an already-open app (a fragment-only
+// navigation that never reloads the page).
+window.addEventListener("hashchange", () => {
+  if (_routing) return;
+  _routing = true;
+  if (!routeFromHash()){
+    const h = location.hash || "";
+    if (/#s=/.test(h)) maybeReceiveShare();
+    else goHome();
+  }
+  _routing = false;
+});
+
+// ---- "Open in CLI" chip ---------------------------------------------------
+// The equivalent shell command for a computed result, mapped from the op key
+// to its qreals subcommand. Ops with no obvious CLI form return null and the
+// chip is simply omitted.
+function _sh(v){
+  const s = String(v == null ? "" : v).trim();
+  if (!s) return "''";
+  return /^[A-Za-z0-9_.\/,\-]+$/.test(s) ? s : "'" + s.replace(/'/g, "'\\''") + "'";
+}
+function _fracPair(input){
+  const m = String(input == null ? "" : input).trim().match(/^(-?\d+)\s*\/\s*(-?\d+)$/);
+  return m ? (m[1] + " " + m[2]) : null;
+}
+function cliCommand(op, input, args){
+  args = args || {};
+  const J = " --json";
+  switch (op){
+    case "rational": { const f = _fracPair(input); return f ? "qreals rational " + f + J : null; }
+    case "jump-gap": { const f = _fracPair(input); return f ? "qreals jumpgap " + f + J : null; }
+    case "qint": return "qreals qint " + _sh(input) + J;
+    case "factor": return "qreals factor " + _sh(input) + J;
+    case "s-properties": return "qreals sprops " + _sh(input) + J;
+    case "cyclotomic": return "qreals cyclotomic " + _sh(input) + J;
+    case "bricks": return "qreals bricks " + _sh(input) + J;
+    case "collapse": return "qreals collapse " + _sh(input) + J;
+    case "exact-rational":
+      return "qreals exact " + _sh(input) +
+        (String(args.y || "").trim() ? " " + _sh(args.y) : "") + J;
+    case "coefficients": return "qreals coeffs " + _sh(input) + " " + _sh(args.n || 12) + J;
+    case "laurent": return "qreals laurent " + _sh(input) + " --order " + _sh(args.order || 12) + J;
+    case "prefix": return "qreals prefix " + _sh(input) + J;
+    case "locked": return "qreals locked " + _sh(input) + " " + _sh(args.n || 2) + J;
+    case "shift":
+      return "qreals shift " + _sh(input) + " --order " + _sh(args.order || 12) +
+        (String(args.direction) === "down" ? " --down" : " --up") + J;
+    case "readouts": return "qreals readouts " + _sh(input) + " " + _sh(args.n || 30) + J;
+    case "radius": return "qreals radius " + _sh(input) + " " + _sh(args.n || 60) + J;
+    case "fingerprint":
+      return "qreals fingerprint " + _sh(input) +
+        (args.n_coeffs ? " --n-coeffs " + _sh(args.n_coeffs) : "") + J;
+    case "certificate": return "qreals certify coeffs " + _sh(input) + " " + _sh(args.n || 12);
+    case "q-sum": return "qreals arith " + _sh(input) + " " + _sh(args.y) + " " + _sh(args.n || 12) + " --add" + J;
+    case "q-product": return "qreals arith " + _sh(input) + " " + _sh(args.y) + " " + _sh(args.n || 12) + " --mul" + J;
+    case "deficit":
+      return "qreals deficit " + _sh(input) + " " + _sh(args.y) + " " + _sh(args.n || 12) +
+        (String(args.op) === "mul" ? " --mul" : " --add") + J;
+    case "quad-arith":
+      return "qreals quad " + _sh(input) + " " + _sh(args.y) + " --op " + _sh(args.op || "add") + J;
+    case "negation": return "qreals negate " + _sh(input) + " " + _sh(args.n || 12) + J;
+    case "finiteness": return "qreals negsum " + _sh(input) + " " + _sh(args.n || 12) + J;
+    case "oeis": return "qreals oeis " + _sh(input) + J;
+    case "s-atlas":
+      return "qreals satlas " + _sh(input) +
+        (+args.a_max ? " --a-max " + _sh(args.a_max) : "") + J;
+    case "saturation-explorer": return "qreals saturation " + _sh(input) + J;
+    case "degree-collapse":
+      return "qreals degcollapse " + _sh(input) +
+        (+args.a_max ? " --a-max " + _sh(args.a_max) : "") + J;
+    default: return null;   // roots, frieze, coeff-surface, root-sweep, radius-grid
+  }
+}
+
 // ---- update check (PyPI) ------------------------------------------------
 // Ask the server (which asks PyPI once per process) whether a newer qreals is
 // out, and show a slim dismissible banner above the nav if so. Fully optional:
@@ -484,6 +667,9 @@ function toggleShareMenu(btn){
 
 // ---- home screen --------------------------------------------------------
 function filterCards(q){
+  // the examples strip and recents row step aside while a filter is active
+  const top = $("homeTop");
+  if (top) top.classList.toggle("hidden", !!q);
   document.querySelectorAll(".op-card").forEach((c) => {
     const hay = (c.textContent || "").toLowerCase();
     c.classList.toggle("hidden", q && !hay.includes(q));
@@ -496,36 +682,90 @@ function filterCards(q){
   });
 }
 
+// The three worked examples on the home top strip; each opens a dossier.
+const HOME_EXAMPLES = [
+  { label: "[22/7]_q", input: "22/7" },
+  { label: "sqrt 2", input: "sqrt(2)" },
+  { label: "golden ratio", input: "(1+sqrt(5))/2" },
+];
+function homeTopHtml(){
+  let html = '<div class="home-top" id="homeTop">' +
+    '<div class="example-strip"><span class="strip-label">Try</span>' +
+    HOME_EXAMPLES.map((ex, i) =>
+      '<button class="chip example-chip" type="button" data-ex="' + i + '">' +
+      esc(ex.label) + '</button>').join("") +
+    '</div>';
+  const recents = store.getHistory().slice(0, 4);
+  if (recents.length){
+    html += '<div class="recents-row"><span class="strip-label">Recent</span>' +
+      recents.map((h, i) =>
+        '<button class="recent-card" type="button" data-recent="' + i + '">' +
+        '<span class="rc-op">' + esc(OPS[h.op] ? OPS[h.op].name : h.op) + '</span>' +
+        '<span class="rc-in">' + esc(h.input != null ? String(h.input) : "") + '</span>' +
+        '<span class="rc-when">' + esc(fmtWhen(h.when)) + '</span>' +
+        '</button>').join("") +
+      '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
 function renderHome(){
   const byGroup = {};
   for (const [key, meta] of Object.entries(OPS)){
     (byGroup[meta.group] = byGroup[meta.group] || []).push([key, meta]);
   }
-  let html = "";
+  const cardHtml = (key, meta) => {
+    const sym = meta.tex ? ('\\(' + meta.tex + '\\)') : esc(meta.symbol);
+    return '<button class="op-card" type="button" data-op="' + esc(key) + '">' +
+      '<p class="oc-name">' + esc(meta.name) + '</p>' +
+      '<span class="oc-sym">' + sym + '</span>' +
+      '<p class="oc-blurb" title="' + esc(meta.blurb) + '">' + esc(meta.blurb) + '</p>' +
+    '</button>';
+  };
+  let html = homeTopHtml();
+  // groups with a single card fold into one "More tools" band at the end,
+  // built dynamically from the registry (never hardcoded).
+  const lonely = [];
   for (const g of GROUPS){
     const ops = byGroup[g];
     if (!ops) continue;
+    if (ops.length === 1){ lonely.push(ops[0]); continue; }
     html += '<h2 class="group-title">' + esc(g) + '</h2><div class="card-grid">';
-    for (const [key, meta] of ops){
-      const sym = meta.tex ? ('\\(' + meta.tex + '\\)') : esc(meta.symbol);
-      html += '<button class="op-card" type="button" data-op="' + esc(key) + '">' +
-        '<p class="oc-name">' + esc(meta.name) + '</p>' +
-        '<span class="oc-sym">' + sym + '</span>' +
-        '<p class="oc-blurb">' + esc(meta.blurb) + '</p>' +
-      '</button>';
-    }
+    for (const [key, meta] of ops) html += cardHtml(key, meta);
+    html += '</div>';
+  }
+  if (lonely.length){
+    html += '<h2 class="group-title">More tools</h2><div class="card-grid">';
+    for (const [key, meta] of lonely) html += cardHtml(key, meta);
     html += '</div>';
   }
   $("cards").innerHTML = html;
   document.querySelectorAll(".op-card").forEach((c) => {
     c.addEventListener("click", () => openOp(c.dataset.op));
   });
+  const top = $("homeTop");
+  if (top){
+    top.querySelectorAll(".example-chip").forEach((b) =>
+      b.addEventListener("click", () => openDossier(HOME_EXAMPLES[+b.dataset.ex].input)));
+    const recents = store.getHistory().slice(0, 4);
+    top.querySelectorAll(".recent-card").forEach((b) =>
+      b.addEventListener("click", () => {
+        const h = recents[+b.dataset.recent];
+        if (!h || !OPS[h.op]) return;
+        openOp(h.op, Object.assign({ input: h.input }, h.args || {}));
+        runCompute();
+      }));
+  }
   typeset($("cards"));
   // rebuild group-jump chips (safe to repeat: replaces innerHTML each call)
   $("groupJump").innerHTML = GROUPS.filter((g) => byGroup[g]).map((g) =>
     '<button class="chip" type="button" data-jump="' + esc(g) + '">' + esc(g) + '</button>').join("");
   $("groupJump").querySelectorAll("[data-jump]").forEach((b) => b.addEventListener("click", () => {
-    const h = Array.from(document.querySelectorAll(".group-title")).find((t) => t.textContent === b.dataset.jump);
+    const titles = Array.from(document.querySelectorAll(".group-title"));
+    // single-card groups fold into "More tools", so jump there instead
+    const h = titles.find((t) => t.textContent === b.dataset.jump) ||
+      titles.find((t) => t.textContent === "More tools");
     if (h) h.scrollIntoView({ behavior: "smooth", block: "start" });
   }));
   renderSavedInto($("savedHome"), false);
@@ -669,18 +909,16 @@ function schedulePreview(){
   clearTimeout(previewTimer);
   previewTimer = setTimeout(updatePreview, 180);
 }
+let _previewCtl = null;
 async function updatePreview(){
   if (!currentOp) return;
   const body = { op: currentOp, input: inputValue(), args: fieldArgs() };
-  let latex = "";
-  try {
-    const res = await fetch("/preview", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(body)
-    });
-    const data = await res.json();
-    latex = data.latex || "";
-  } catch(e){ latex = ""; }
+  if (_previewCtl) _previewCtl.abort();     // stale keystrokes never land
+  const ctl = new AbortController();
+  _previewCtl = ctl;
+  const out = await apiCall("/preview", body, { controller: ctl, timeoutMs: 15000 });
+  if (_previewCtl !== ctl) return;          // superseded by a newer keystroke
+  const latex = (out.ok && out.data.latex) || "";
   const el = $("previewMath");
   if (!el) return;
   el.innerHTML = latex ? ("\\(" + latex + "\\)") : '<span style="color:var(--ink-faint)">&mdash;</span>';
@@ -688,6 +926,11 @@ async function updatePreview(){
 }
 
 function focusInput(){
+  // on the home screen, "focus input" means the omnibox
+  if (!home.classList.contains("hidden")){
+    const s = $("toolSearch");
+    if (s){ s.focus(); return; }
+  }
   const c = currentControls["input"];
   if (!c) return;
   const mf = $("formPanel").querySelector('[data-mfslot="input"] math-field');
@@ -698,10 +941,12 @@ function focusInput(){
 
 function openOp(opKey, preset, storedResult){
   currentOp = opKey;
-  home.classList.add("hidden");
-  savedView.classList.add("hidden");
-  workspaceView.classList.add("hidden");
+  hideAllViews();
   opView.classList.remove("hidden");
+  // deep-linkable: every op view has a URL, and Back walks the views
+  const linkArgs = {};
+  if (preset) for (const k of Object.keys(preset)){ if (k !== "input") linkArgs[k] = preset[k]; }
+  pushRoute("#op=" + _b64uEnc({ op: opKey, input: preset ? preset.input : undefined, args: linkArgs }));
   buildForm(opKey, preset);
   if (storedResult){
     showResult(storedResult);
@@ -714,33 +959,43 @@ function openOp(opKey, preset, storedResult){
   updatePreview();
 }
 
+let _computeCtl = null;   // the in-flight main computation, abortable
 async function runCompute(){
   if (!currentOp) return;
   const input = inputValue(), args = fieldArgs();
   const btn = $("goBtn");
+  if (_computeCtl) _computeCtl.abort();     // supersede any older run
+  const ctl = new AbortController();
+  _computeCtl = ctl;
   if (btn){ btn.disabled = true; btn.textContent = "Computing..."; }
-  $("result").innerHTML = '<div class="result-loading"><span class="spinner"></span>Computing…</div>';
-  let data;
-  try {
-    const res = await fetch("/compute", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ op: currentOp, input, args })
-    });
-    data = await res.json();
-  } catch(e){
-    data = { error: "could not reach the server: " + e };
-  }
+  $("result").innerHTML = computingHtml();
+  const cancelBtn = $("result").querySelector(".cancel-btn");
+  if (cancelBtn) cancelBtn.addEventListener("click", () => ctl.abort());
+  const out = await apiCall("/compute", { op: currentOp, input, args }, { controller: ctl });
+  if (_computeCtl !== ctl) return;          // a newer compute took over
+  _computeCtl = null;
   if (btn){ btn.disabled = false; btn.textContent = "Compute"; }
-  if (data.error){
+  if (!out.ok){
     lastResult = null;
-    $("result").innerHTML = '<div class="result-error">error: ' + esc(data.error) + '</div>';
+    const msg = (out.aborted && !out.timedOut)
+      ? "Cancelled. The inputs are live again."
+      : "error: " + out.error;
+    $("result").innerHTML = '<div class="result-error">' + esc(msg) + '</div>';
     return;
   }
+  const data = out.data;
   lastResult = { op: currentOp, input, args, latex: data.latex,
                  text: data.text, rows: data.rows || [], meta: data.meta || null };
   showResult(lastResult);
   if (store.active()) store.updateActive({ lastSession: { op: currentOp, input, args } });
   store.pushHistory({ op: currentOp, input, args });
+  // keep the address bar citable: the URL encodes the latest computation
+  if (!opView.classList.contains("hidden")){
+    try {
+      history.replaceState({ qreals: true }, "",
+        "#op=" + _b64uEnc({ op: currentOp, input, args }));
+    } catch(e){ /* non-fatal */ }
+  }
 }
 
 // Show a result in the main per-operation panel.
@@ -891,17 +1146,26 @@ function renderResultInto(root, r, opts){
     }
   }
   html += textFallbackHtml(r.text);
+  const cliCmd = cliCommand(r.op, r.input, r.args || {});
+  const cliChip = cliCmd
+    ? '<button class="mini cli-chip" type="button" title="Copy the equivalent shell command: ' +
+      esc(cliCmd) + '">$ ' + esc(cliCmd) + '</button>'
+    : '';
   if (opts.actions === "main"){
     html += '<div class="result-actions">' +
       '<button class="mini primary save-btn" type="button">Save this result</button>' +
       '<button class="mini addcmp-btn" type="button">Add to compare</button>' +
       '<button class="mini copytex-btn" type="button">Copy LaTeX</button>' +
+      '<button class="mini copylink-btn" type="button">Copy link</button>' +
       '<button class="mini share-result-btn" type="button">Share</button>' +
+      cliChip +
       '</div>';
   } else {
     html += '<div class="result-actions">' +
       '<button class="mini copytex-btn" type="button">Copy LaTeX</button>' +
+      '<button class="mini copylink-btn" type="button">Copy link</button>' +
       '<button class="mini share-result-btn" type="button">Share</button>' +
+      cliChip +
       '</div>';
   }
   html += '<details class="derivation"><summary>Show the derivation</summary>' +
@@ -949,6 +1213,15 @@ function renderResultInto(root, r, opts){
   if (copyTexBtn) copyTexBtn.addEventListener("click", () => {
     navigator.clipboard.writeText(r.latex).then(() => toast("LaTeX copied"));
   });
+  const copyLinkBtn = root.querySelector(".copylink-btn");
+  if (copyLinkBtn) copyLinkBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(opDeepLink(r.op, r.input, r.args || {}))
+      .then(() => toast("Link copied"));
+  });
+  const cliBtn = root.querySelector(".cli-chip");
+  if (cliBtn) cliBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(cliCmd).then(() => toast("CLI command copied"));
+  });
   const saveBtn = root.querySelector(".save-btn");
   if (saveBtn) saveBtn.addEventListener("click", () => saveResult(r));
   const addCmpBtn = root.querySelector(".addcmp-btn");
@@ -967,9 +1240,9 @@ function renderResultInto(root, r, opts){
     if (!det.open || det._loaded) return;
     det._loaded = true;
     const body = det.querySelector(".derivation-body");
-    const data = await fetch("/certificate", { method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ op: r.op, input: r.input, args: r.args || {} }) }).then((x) => x.json()).catch(() => null);
-    if (!data || data.error){ body.innerHTML = '<span class="cmp-err">No step-by-step derivation for this tool.</span>'; return; }
+    const out = await apiCall("/certificate", { op: r.op, input: r.input, args: r.args || {} });
+    const data = out.ok ? out.data : null;
+    if (!data){ body.innerHTML = '<span class="cmp-err">No step-by-step derivation for this tool.</span>'; return; }
     let h = "";
     // headline + structure are PROSE (escaped text) - never math-wrapped, or
     // MathJax collapses the words. Only the real math is typeset, as display math.
@@ -2633,10 +2906,24 @@ function addWsTile(item){
   node._compute = async () => {
     const { op, input, args } = cmpRowGet(node);
     store.updateCompare(item.id, { op, input, args });
-    const res = await computeResult(op, input, args);
     const body = node.querySelector(".ws-tile-body");
-    if (!res){ body.innerHTML = '<div class="result-error">could not compute</div>'; return; }
-    renderResultInto(body, res, { actions: "tile" });
+    if (node._ctl) node._ctl.abort();        // supersede this tile's older run
+    const ctl = new AbortController();
+    node._ctl = ctl;
+    body.innerHTML = computingHtml();
+    const cancelBtn = body.querySelector(".cancel-btn");
+    if (cancelBtn) cancelBtn.addEventListener("click", () => ctl.abort());
+    const out = await computeResultEx(op, input, args, { controller: ctl });
+    if (node._ctl !== ctl) return;           // a newer recompute took over
+    node._ctl = null;
+    if (!out.ok){
+      const msg = (out.aborted && !out.timedOut)
+        ? "Cancelled. Edit the fields to recompute."
+        : "could not compute: " + out.error;
+      body.innerHTML = '<div class="result-error">' + esc(msg) + '</div>';
+      return;
+    }
+    renderResultInto(body, out.res, { actions: "tile" });
     renderTray();
   };
   node.querySelector(".cmp-row-op").addEventListener("change", (e) => {
@@ -2671,19 +2958,22 @@ function updateWsCount(){
 let cmpRows = [];   // [{id, op, input, result}] - retired standalone path
 const cmpTimers = {};
 
-// Compute one operation and return a result-shaped object (or null on error),
-// reusing the same /compute endpoint the per-operation panel calls.
+// Compute one operation through the shared fetch layer. computeResultEx keeps
+// the error detail (message, cancelled, timed out) for callers that surface
+// it; computeResult keeps the old result-or-null shape for the rest.
+async function computeResultEx(op, input, args, opts){
+  const out = await apiCall("/compute", { op, input, args: args || {} }, opts);
+  if (!out.ok){
+    return { ok: false, error: out.error,
+             aborted: !!out.aborted, timedOut: !!out.timedOut };
+  }
+  const data = out.data;
+  return { ok: true, res: { op, input, args: args || {}, latex: data.latex,
+           text: data.text, rows: data.rows || [], meta: data.meta || null } };
+}
 async function computeResult(op, input, args){
-  try {
-    const res = await fetch("/compute", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ op, input, args: args || {} })
-    });
-    const data = await res.json();
-    if (data.error) return null;
-    return { op, input, args: args || {}, latex: data.latex,
-             text: data.text, rows: data.rows || [], meta: data.meta || null };
-  } catch(e){ return null; }
+  const out = await computeResultEx(op, input, args);
+  return out.ok ? out.res : null;
 }
 // The operation picker for a row: every tool, grouped, the current op selected.
 function cmpOpOptions(selected){
@@ -2861,17 +3151,248 @@ function renderTrayDiff(){
     _laurentLatex(d) + " + O(q^{" + order + "})" + '\\]</div></div>';
   typeset(box);
 }
+// ---- input classification (shared by the omnibox and the dossier) -------
+// A rough client-side read of what the user typed, used only to pick which
+// registry ops apply; the engine's parser stays the single source of truth.
+function classifyInput(s){
+  s = String(s == null ? "" : s).trim();
+  if (/^-?\d+$/.test(s)) return "integer";
+  if (/^-?\d+\s*\/\s*\d+$/.test(s)) return "rational";
+  return "real";
+}
+function opAcceptsKind(meta, kind){
+  const k = meta.input_kind;
+  if (k === "sequence") return false;
+  if (kind === "integer") return true;              // n works as n, n/1, or a real
+  if (kind === "rational") return k === "rational" || k === "real";
+  return k === "real";
+}
+// The op whose /preview rendering best matches an input of this kind.
+function previewOpFor(kind){
+  if (kind === "integer") return "qint";
+  if (kind === "rational") return "rational";
+  return "coefficients";
+}
+
+// ---- input-first omnibox --------------------------------------------------
+// The home search box accepts math as well as tool names: when the text looks
+// like an input (digits, /, sqrt, pi, e, parentheses), a debounced /preview
+// call shows a typeset chip with "Open dossier" plus the top matching ops.
+// Plain tool-name filtering is untouched and always runs.
+function looksLikeMathInput(s){
+  if (!s) return false;
+  return /\d/.test(s) || s.includes("/") || s.includes("(") || s.includes(")") ||
+    /sqrt/i.test(s) || /\bpi\b/i.test(s) || /^e$/i.test(s.trim());
+}
+const OMNI_TOP_OPS = {
+  integer: ["qint", "bricks", "collapse"],
+  rational: ["cyclotomic", "rational", "exact-rational"],
+  real: ["coefficients", "laurent", "radius"],
+};
+let _omniTimer = null, _omniCtl = null;
+function ensureOmniBox(){
+  let box = $("omniPreview");
+  if (box) return box;
+  box = document.createElement("div");
+  box.id = "omniPreview";
+  box.className = "omni-preview hidden";
+  const finder = document.querySelector(".home-finder");
+  finder.parentNode.insertBefore(box, finder.nextSibling);
+  return box;
+}
+function hideOmniPreview(){
+  const box = $("omniPreview");
+  if (box) box.classList.add("hidden");
+}
+function scheduleOmniPreview(q){
+  clearTimeout(_omniTimer);
+  if (!q || !looksLikeMathInput(q)){ hideOmniPreview(); return; }
+  _omniTimer = setTimeout(() => updateOmniPreview(q), 250);
+}
+async function updateOmniPreview(q){
+  const kind = classifyInput(q);
+  if (_omniCtl) _omniCtl.abort();
+  const ctl = new AbortController();
+  _omniCtl = ctl;
+  const out = await apiCall("/preview", { op: previewOpFor(kind), input: q, args: {} },
+    { controller: ctl, timeoutMs: 15000 });
+  if (_omniCtl !== ctl) return;             // superseded by a newer keystroke
+  const latex = (out.ok && out.data.latex) || "";
+  const box = ensureOmniBox();
+  if (!latex){ box.classList.add("hidden"); return; }
+  const tops = (OMNI_TOP_OPS[kind] || []).filter((k) => OPS[k]);
+  box.innerHTML = '<span class="omni-label">Reads as</span>' +
+    '<span class="omni-math">\\(' + latex + '\\)</span>' +
+    '<span class="omni-acts">' +
+    '<button class="mini primary omni-dossier" type="button">Open dossier</button>' +
+    tops.map((k) => '<button class="mini omni-op" type="button" data-op="' + esc(k) +
+      '">' + esc(OPS[k].name) + '</button>').join("") +
+    '</span>';
+  box.classList.remove("hidden");
+  typeset(box);
+  box.querySelector(".omni-dossier").addEventListener("click", () => openDossier(q));
+  box.querySelectorAll(".omni-op").forEach((b) => b.addEventListener("click", () => {
+    openOp(b.dataset.op, { input: q });
+    runCompute();
+  }));
+}
+
+// ---- dossier view: one input, every applicable tool ------------------------
+// A stacked page for a single input. Cheap groups (q-rationals, q-reals) run
+// immediately, sequentially through the shared fetch layer so the server is
+// never hammered; everything else is a click-to-run card. The section is
+// created here (not in template.html) and toggled like the other views.
+const DOSSIER_CHEAP_GROUPS = ["q-rationals", "q-reals"];
+let dossierView = null;
+let currentDossierInput = null;
+let _dossierSeq = 0;    // bumped on every (re)render; stale runs check it
+function ensureDossierDom(){
+  if (dossierView) return dossierView;
+  dossierView = document.createElement("section");
+  dossierView.id = "dossierView";
+  dossierView.className = "hidden";
+  document.querySelector("main.wrap").appendChild(dossierView);
+  return dossierView;
+}
+function defaultArgsFor(opKey){
+  const args = {};
+  for (const f of OPS[opKey].fields){
+    if (f.name === "input") continue;
+    args[f.name] = f.example;
+  }
+  return args;
+}
+function dossierOps(kind){
+  const list = [];
+  for (const g of GROUPS){
+    for (const [key, meta] of Object.entries(OPS)){
+      if (meta.group !== g || !opAcceptsKind(meta, kind)) continue;
+      list.push([key, meta]);
+    }
+  }
+  // cheap (auto-run) groups first, in registry order within each half
+  return list.filter(([, m]) => DOSSIER_CHEAP_GROUPS.includes(m.group))
+    .concat(list.filter(([, m]) => !DOSSIER_CHEAP_GROUPS.includes(m.group)));
+}
+function openDossier(input){
+  input = String(input == null ? "" : input).trim();
+  if (!input) return;
+  ensureDossierDom();
+  hideAllViews();
+  dossierView.classList.remove("hidden");
+  currentOp = null;
+  currentDossierInput = input;
+  pushRoute("#x=" + _b64uEnc(input));
+  renderDossier(input);
+  renderTray();
+  window.scrollTo(0, 0);
+}
+function renderDossier(input){
+  const kind = classifyInput(input);
+  const seq = ++_dossierSeq;
+  const ops = dossierOps(kind);
+  let html = '<button class="back dossier-back" type="button">&larr; All operations</button>' +
+    '<div class="dossier-head panel">' +
+      '<div class="dossier-title"><span class="eyebrow">Dossier</span>' +
+        '<div class="dossier-math" id="dossierMath">' +
+          '<span class="dossier-in">[' + esc(input) + ']_q</span></div></div>' +
+      '<div class="dossier-change">' +
+        '<input id="dossierInput" type="text" value="' + esc(input) +
+          '" spellcheck="false" autocomplete="off" aria-label="dossier input">' +
+        '<button class="mini primary" id="dossierGo" type="button">Change input</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="dossier-cards">';
+  for (const [key, meta] of ops){
+    const heavy = !DOSSIER_CHEAP_GROUPS.includes(meta.group);
+    html += '<div class="dossier-card panel" data-dop="' + esc(key) +
+      '" data-heavy="' + (heavy ? "1" : "0") + '">' +
+      '<div class="dossier-card-head">' +
+        '<div class="dc-title"><span class="dc-group">' + esc(meta.group) + '</span>' +
+        '<h3 class="dc-name">' + esc(meta.name) + '</h3></div>' +
+        '<a class="dc-open" href="' + esc(opDeepLink(key, input, defaultArgsFor(key))) +
+          '">open full view &rarr;</a>' +
+      '</div>' +
+      '<div class="dossier-card-body">' +
+      (heavy
+        ? '<button class="mini dc-run" type="button">Run</button>' +
+          '<span class="dc-note">runs on demand (heavier computation)</span>'
+        : '<div class="dc-wait">queued…</div>') +
+      '</div></div>';
+  }
+  html += '</div>';
+  dossierView.innerHTML = html;
+  dossierView.querySelector(".dossier-back").addEventListener("click", goHome);
+  const inp = $("dossierInput");
+  const change = () => { const v = inp.value.trim(); if (v && v !== currentDossierInput) openDossier(v); };
+  $("dossierGo").addEventListener("click", change);
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter"){ e.preventDefault(); change(); }
+  });
+  // typeset the header through /preview (best effort; the raw text stands in)
+  apiCall("/preview", { op: previewOpFor(kind), input, args: {} }, { timeoutMs: 15000 })
+    .then((out) => {
+      if (seq !== _dossierSeq) return;
+      const latex = (out.ok && out.data.latex) || "";
+      const m = $("dossierMath");
+      if (m && latex){ m.innerHTML = '\\(' + latex + '\\)'; typeset(m); }
+    });
+  // "open full view" routes inside the SPA (the href stays a real deep link
+  // for copy / middle-click)
+  dossierView.querySelectorAll(".dc-open").forEach((a) =>
+    a.addEventListener("click", (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+      e.preventDefault();
+      const key = a.closest(".dossier-card").dataset.dop;
+      openOp(key, Object.assign({ input }, defaultArgsFor(key)));
+      runCompute();
+    }));
+  dossierView.querySelectorAll(".dc-run").forEach((b) =>
+    b.addEventListener("click", () => {
+      runDossierCard(b.closest(".dossier-card"), input, seq);
+    }));
+  // run the cheap cards now, one at a time
+  (async () => {
+    for (const card of Array.from(dossierView.querySelectorAll('.dossier-card[data-heavy="0"]'))){
+      if (seq !== _dossierSeq) return;
+      await runDossierCard(card, input, seq);
+    }
+  })();
+}
+async function runDossierCard(card, input, seq){
+  const op = card.dataset.dop;
+  const body = card.querySelector(".dossier-card-body");
+  body.innerHTML = computingHtml();
+  const ctl = new AbortController();
+  const cancelBtn = body.querySelector(".cancel-btn");
+  if (cancelBtn) cancelBtn.addEventListener("click", () => ctl.abort());
+  const out = await computeResultEx(op, input, defaultArgsFor(op), { controller: ctl });
+  if (seq !== _dossierSeq) return;
+  if (!out.ok){
+    const msg = (out.aborted && !out.timedOut) ? "cancelled" : out.error;
+    body.innerHTML = '<div class="result-error">' + esc(msg) + '</div>' +
+      '<button class="mini dc-run" type="button">Run again</button>';
+    const again = body.querySelector(".dc-run");
+    if (again) again.addEventListener("click", () => runDossierCard(card, input, seq));
+    return;
+  }
+  body.innerHTML = '<div class="rmath dc-math">\\[' + out.res.latex + '\\]</div>';
+  typeset(body.querySelector(".dc-math"));
+}
+
 // ---- navigation ------------------------------------------------------
 function hideAllViews(){
   home.classList.add("hidden");
   opView.classList.add("hidden");
   savedView.classList.add("hidden");
   workspaceView.classList.add("hidden");
+  if (dossierView) dossierView.classList.add("hidden");
 }
 function goHome(){
   hideAllViews();
   home.classList.remove("hidden");
   currentOp = null;
+  if (location.hash) pushRoute("");   // clear the hash; Back returns to the previous view
   renderSavedInto($("savedHome"), false);
   renderTray();   // re-show the compare tray after leaving the workspace
   window.scrollTo(0, 0);
@@ -2969,10 +3490,53 @@ $("paletteInput").addEventListener("keydown", (e) => {
   else if (e.key === "Enter"){ e.preventDefault(); const a = _palMatches[_palSel]; closePalette(); if (a) a.run(); }
   else if (e.key === "Escape"){ closePalette(); }
 });
+// ---- keyboard shortcuts overlay ("?") --------------------------------
+const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform || "");
+const MOD_KEY = IS_MAC ? "Cmd" : "Ctrl";
+function ensureShortcutsDom(){
+  let back = $("shortcutsBackdrop");
+  if (back) return back;
+  back = document.createElement("div");
+  back.id = "shortcutsBackdrop";
+  back.className = "modal-backdrop hidden";
+  back.innerHTML = '<div class="modal" role="dialog" aria-modal="true">' +
+    '<h2>Keyboard shortcuts</h2>' +
+    '<dl class="shortcut-list">' +
+    '<dt><kbd>' + MOD_KEY + '</kbd> <kbd>K</kbd></dt><dd>open the command palette</dd>' +
+    '<dt><kbd>/</kbd></dt><dd>focus the search box or the current input</dd>' +
+    '<dt><kbd>Enter</kbd></dt><dd>compute, from any input field</dd>' +
+    '<dt><kbd>?</kbd></dt><dd>show this overlay</dd>' +
+    '<dt><kbd>Esc</kbd></dt><dd>close dialogs and drawers</dd>' +
+    '</dl>' +
+    '<div class="startup-actions"><button class="go" id="shortcutsClose" type="button">Close</button></div>' +
+    '</div>';
+  document.body.appendChild(back);
+  back.addEventListener("click", (e) => { if (e.target === back) closeShortcuts(); });
+  back.querySelector("#shortcutsClose").addEventListener("click", closeShortcuts);
+  return back;
+}
+function openShortcuts(){
+  const back = ensureShortcutsDom();
+  back.classList.remove("hidden");
+  requestAnimationFrame(() => back.classList.add("show"));
+}
+function closeShortcuts(){
+  const back = $("shortcutsBackdrop");
+  if (!back || back.classList.contains("hidden")) return;
+  back.classList.remove("show");
+  setTimeout(() => back.classList.add("hidden"), 280);
+}
+function _inEditable(e){
+  return /^(INPUT|TEXTAREA|SELECT|MATH-FIELD)$/.test((e.target.tagName || "")) ||
+    e.target.isContentEditable;
+}
 window.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k"){ e.preventDefault(); openPalette(); return; }
+  if (e.key === "?" && !_inEditable(e)){
+    e.preventDefault(); openShortcuts(); return;
+  }
   if (e.key === "Escape"){
-    closePalette(); closeHistory();
+    closePalette(); closeHistory(); closeShortcuts();
     // Close the receive (shared comparison) modal if it is open.
     const rb = $("receiveBackdrop");
     if (rb && !rb.classList.contains("hidden")){
@@ -3007,7 +3571,7 @@ function segValue(groupId, attr, fallback){
 // The picker's current theme/size selection. Applies live even before a profile
 // exists (first run / guest); persists to the active profile when there is one,
 // and seeds Guest and the New-profile form so the choice is never a dead end.
-let _pickAppearance = { theme: "light", fontSize: "m" };
+let _pickAppearance = { theme: systemTheme(), fontSize: "m" };
 $("apThemeBtns").addEventListener("click", (e) => {
   const b = e.target.closest("[data-theme]"); if (!b) return;
   _pickAppearance.theme = b.dataset.theme;
@@ -3107,8 +3671,16 @@ $("shareMenu").addEventListener("click", async (e) => {
 });
 
 // ---- profiles UI -----------------------------------------------------
+// With no stored theme the app follows the OS (prefers-color-scheme); a
+// manual choice still wins and persists on the profile.
+function systemTheme(){
+  try {
+    return (window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+  } catch(e){ return "light"; }
+}
 function applyAppearance(profile){
-  const theme = (profile && profile.theme) || "light";
+  const theme = (profile && profile.theme) || systemTheme();
   const size = (profile && profile.fontSize) || "m";
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.setProperty("--ui-scale",
@@ -3175,12 +3747,24 @@ function enterGuest(){
 }
 
 // ---- start -----------------------------------------------------------
-$("toolSearch").addEventListener("input", (e) => filterCards(e.target.value.trim().toLowerCase()));
+$("toolSearch").addEventListener("input", (e) => {
+  const q = e.target.value.trim();
+  filterCards(q.toLowerCase());     // tool-name filtering, exactly as before
+  scheduleOmniPreview(q);           // plus the math omnibox preview
+});
+$("toolSearch").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const q = e.target.value.trim();
+  if (q && looksLikeMathInput(q)){ e.preventDefault(); openDossier(q); }
+});
+$("toolSearch").placeholder = "Search tools or type a number… (" + MOD_KEY + "-K)";
+ensureDossierDom();
 renderHome();
 updateCount();
 updateWsCount();
 renderTray();
 applyAppearance(store.active());
 if (!store.active()) showStartup();    // first run / no active profile -> picker
-maybeReceiveShare();
+maybeReceiveShare();                    // the old #s= share links keep working
+routeFromHash();                        // #op= / #x= deep links land directly
 checkForUpdate();

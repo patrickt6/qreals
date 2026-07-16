@@ -3,13 +3,14 @@ r"""QReal: a convenience wrapper around a computed q-real series.
 The functional API in `arithmetic` and `truncated` is the stable core; this
 class is sugar over it. A QReal holds a Laurent result (a valuation and a dense
 coefficient list) together with a short label saying where it came from, and
-offers the everyday read-outs plus operators that delegate straight back to the
-functions:
+offers the everyday read-outs plus operators. + and * combine the stored
+coefficient lists directly (coefficient-wise sum and Cauchy product, the same
+values arithmetic.q_add / q_mul compute); unary - delegates to q_neg:
 
     QReal("pi", 12).coeffs            -> [1, 1, 1, 0, ...]
-    QReal("3/2", 12) + QReal("13/5")  -> q_add, a new QReal
+    QReal("3/2", 12) + QReal("13/5")  -> the q_add value, a new QReal
     -QReal("sqrt(2)", 12)             -> q_neg (Jouteur), a Laurent QReal
-    QReal("3/2", 12) * QReal("5/2")   -> q_mul, a new QReal
+    QReal("3/2", 12) * QReal("5/2")   -> the q_mul value, a new QReal
 
 Operators carry the same caveats as the functions they call: + and * are the
 series sum and product [x]_q +/* [y]_q, not [x +/* y]_q, and unary - is the
@@ -71,7 +72,7 @@ class QReal:
             )
         if len(self.coeffs) < 2:
             raise ValueError("need at least 2 coefficients to estimate a slope")
-        return _radius_from_coeffs(self.coeffs)
+        return arithmetic.radius_from_coeffs(self.coeffs)
 
     def sign_pattern(self) -> str:
         """The sign of each coefficient as a string of '+', '-', '0'."""
@@ -97,20 +98,36 @@ class QReal:
                 run_len = 0
         return best_start, best_len
 
-    # -- operators delegating to the functional API ----------------------------
+    # -- operators reusing the stored coefficients ------------------------------
+    # + and * are the series sum and Cauchy product of the two stored
+    # coefficient lists, truncated to the shorter length. This matches
+    # arithmetic.q_add / q_mul exactly (the first n coefficients of [x]_q are
+    # the same whatever precision the series was computed to), without
+    # recomputing both operands from their continued fractions. The
+    # _operand_real calls keep the old domain rule: operators apply only to a
+    # single-real QReal built as QReal(x, N), same errors as before.
     def __add__(self, other: "QReal") -> "QReal":
-        x, y = _operand_real(self), _operand_real(other)
+        _operand_real(self)
+        _operand_real(other)
         n = min(len(self), len(other))
-        return QReal.from_laurent(
-            0, arithmetic.q_add(x, y, n), f"{self.label} + {other.label}"
-        )
+        coeffs = [a + b for a, b in zip(self.coeffs[:n], other.coeffs[:n])]
+        return QReal.from_laurent(0, coeffs, f"{self.label} + {other.label}")
 
     def __mul__(self, other: "QReal") -> "QReal":
-        x, y = _operand_real(self), _operand_real(other)
+        _operand_real(self)
+        _operand_real(other)
         n = min(len(self), len(other))
-        return QReal.from_laurent(
-            0, arithmetic.q_mul(x, y, n), f"{self.label} * {other.label}"
-        )
+        cx = self.coeffs[:n]
+        cy = other.coeffs[:n]
+        out = [0] * n
+        for i, a in enumerate(cx):
+            if a == 0:
+                continue
+            for j, b in enumerate(cy):
+                if i + j >= n:
+                    break
+                out[i + j] += a * b
+        return QReal.from_laurent(0, out, f"{self.label} * {other.label}")
 
     def __neg__(self) -> "QReal":
         x = _operand_real(self)
@@ -126,20 +143,6 @@ class QReal:
         return f"QReal(label={self.label!r}, valuation={self.valuation}, coeffs={self.coeffs})"
 
 
-def _radius_from_coeffs(coeffs: list[int]) -> float:
-    import math
-
-    max_slope: float | None = None
-    for k in range(1, len(coeffs)):
-        c = coeffs[k]
-        if c == 0:
-            continue
-        slope = math.log(abs(c)) / k
-        if max_slope is None or slope > max_slope:
-            max_slope = slope
-    return math.inf if max_slope is None else math.exp(-max_slope)
-
-
 def _strip(label: str) -> str:
     """Recover the x from a '[x]_q' label, else return the label unchanged."""
     if label.startswith("[") and label.endswith("]_q"):
@@ -152,9 +155,13 @@ def _operand_real(qr: "QReal") -> str:
 
     Operators are defined for QReals that name a single real x (valuation 0,
     label '[x]_q'); a compound or negated QReal has no such x to recompute from.
+    A compound label like '[x]_q + [y]_q' still starts with '[' and ends with
+    ']_q', so the stripped x is additionally required to be bracket-free
+    (previously that case slipped through here and died in the downstream
+    parse instead).
     """
     x = _strip(qr.label)
-    if qr.valuation != 0 or x == qr.label:
+    if qr.valuation != 0 or x == qr.label or "[" in x or "]" in x:
         raise ValueError(
             "QReal operators apply to a single-real q-real built as QReal(x, N); "
             f"this QReal is {qr.label!r}"

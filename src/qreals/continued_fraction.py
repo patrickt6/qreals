@@ -19,6 +19,30 @@ import sympy as sp
 from ._parsing import parse_real
 
 
+def _partial_quotients(x: sp.Expr):
+    """Yield the regular-CF partial quotients of x, at any depth.
+
+    For rationals and quadratic irrationals sp.continued_fraction gives the
+    exact finite-or-periodic form, which unrolls with no expression nesting.
+    sp.continued_fraction_iterator, the fallback for other reals, builds a
+    residual whose expression tree deepens by one level per quotient, and
+    sympy's evalf recursion tracks that depth: for a surd like sqrt(2) it hits
+    Python's recursion limit near depth 250, so it is only used where the
+    periodic form does not exist.
+    """
+    try:
+        cf = sp.continued_fraction(x)
+    except ValueError:
+        yield from sp.continued_fraction_iterator(x)
+        return
+    for term in cf:
+        if isinstance(term, list):
+            while True:
+                yield from term
+        else:
+            yield term
+
+
 def cf_partials(x_repr: str, max_sum: int, max_depth: int = 500) -> list[int]:
     """Partial quotients of x = sympify(x_repr) until their sum exceeds max_sum.
 
@@ -30,7 +54,7 @@ def cf_partials(x_repr: str, max_sum: int, max_depth: int = 500) -> list[int]:
     x = parse_real(x_repr)
     out: list[int] = []
     total = 0
-    for k, ai in enumerate(sp.continued_fraction_iterator(x)):
+    for k, ai in enumerate(_partial_quotients(x)):
         out.append(int(ai))
         total += int(ai)
         if total >= max_sum + 1:

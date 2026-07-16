@@ -613,3 +613,90 @@ body{padding-bottom:0}  /* tray overlays; pages already scroll */
 .lattice-link{margin:12px 0 2px;font-size:.9rem}
 .lattice-link a{color:var(--accent);text-decoration:none;font-weight:600}
 .lattice-link a:hover{color:var(--accent-dark);text-decoration:underline}
+
+/* ---- cancelable computations -------------------------------------------
+   The in-flight state carries a live Cancel button next to the spinner. */
+.result-loading .cancel-btn{margin-left:4px}
+
+/* ---- home top strip: examples + recents --------------------------------- */
+.home-top{display:flex;flex-direction:column;gap:10px;margin:16px 0 2px}
+.example-strip,.recents-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.strip-label{font-family:var(--sans);font-size:.68rem;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint)}
+.example-chip{font-family:var(--mono);font-size:.8rem}
+.recent-card{display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+  padding:8px 12px;border:1px solid var(--line);border-radius:10px;
+  background:var(--bg);cursor:pointer;box-shadow:var(--shadow);
+  font-family:var(--sans);text-align:left}
+.recent-card:hover{border-color:var(--accent)}
+.recent-card .rc-op{font-size:.8rem;font-weight:650;color:var(--ink)}
+.recent-card .rc-in{font-family:var(--mono);font-size:.75rem;color:var(--ink-soft);
+  max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recent-card .rc-when{font-size:.68rem;color:var(--ink-faint)}
+
+/* ---- omnibox math preview ------------------------------------------------ */
+.omni-preview{display:flex;flex-wrap:wrap;align-items:center;gap:12px;
+  margin:10px 0 0;padding:10px 14px;border:1px dashed var(--line-strong);
+  border-radius:10px;background:var(--bg-softer)}
+.omni-preview .omni-label{font-family:var(--sans);font-size:.66rem;font-weight:700;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);flex:none}
+.omni-preview .omni-math{overflow-x:auto;overflow-y:hidden;color:var(--ink);
+  scrollbar-width:none}
+.omni-preview .omni-math::-webkit-scrollbar{display:none}
+.omni-preview .omni-math mjx-container{margin:0 !important}
+.omni-preview .omni-acts{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+
+/* ---- dossier view --------------------------------------------------------- */
+#dossierView{max-width:960px;margin:0 auto}
+.dossier-head{position:sticky;top:58px;z-index:40;display:flex;flex-wrap:wrap;
+  gap:12px 20px;align-items:center;justify-content:space-between;margin-bottom:16px}
+.dossier-title{min-width:0}
+.dossier-math{font-size:1.25rem;margin-top:2px;overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:none}
+.dossier-math::-webkit-scrollbar{display:none}
+.dossier-math mjx-container{margin:0 !important}
+.dossier-in{font-family:var(--mono);color:var(--ink-soft)}
+.dossier-change{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dossier-change input{font-family:var(--mono);font-size:.95rem;padding:8px 10px;
+  border:1px solid var(--line-strong);border-radius:8px;background:var(--bg-soft);
+  color:var(--ink);min-width:200px}
+.dossier-change input:focus{outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-soft)}
+.dossier-cards{display:flex;flex-direction:column;gap:14px}
+.dossier-card-head{display:flex;align-items:baseline;gap:12px;margin-bottom:8px}
+.dc-title{display:flex;flex-direction:column;gap:1px;min-width:0}
+.dc-group{font-family:var(--sans);font-size:.66rem;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint)}
+.dc-name{font-family:var(--sans);font-size:1.05rem;font-weight:700;margin:0}
+.dc-open{margin-left:auto;flex:none;font-family:var(--sans);font-size:.85rem;
+  font-weight:600;white-space:nowrap}
+.dossier-card-body{min-height:32px}
+.dc-math{overflow-x:auto;overflow-y:hidden;font-size:1.05rem;padding:2px 0}
+.dc-math mjx-container{margin:.15em 0 !important}
+.dc-wait{font-family:var(--sans);font-size:.85rem;color:var(--ink-faint)}
+.dc-note{font-family:var(--sans);font-size:.8rem;color:var(--ink-faint);
+  margin-left:10px}
+.dossier-card .result-error{margin-bottom:8px}
+
+/* ---- "Open in CLI" chip ---------------------------------------------------- */
+.cli-chip{font-family:var(--mono);font-size:.72rem;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---- card blurbs: intentional two-line clamp ------------------------------ */
+/* The clamp itself lives on .oc-blurb (line-clamp: 2); these keep the cut
+   clean (never mid-word) and the full text rides the title attribute. */
+.op-card .oc-blurb{word-break:normal;overflow-wrap:break-word;hyphens:none}
+
+/* ---- keyboard focus on chips and cards (explicit, beyond the global rule) - */
+.chip:focus-visible,.op-card:focus-visible,.recent-card:focus-visible,
+.mini:focus-visible,.dc-open:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---- shortcuts overlay ("?") ----------------------------------------------- */
+.shortcut-list{display:grid;grid-template-columns:max-content 1fr;gap:10px 18px;
+  margin:16px 0 6px;font-family:var(--sans);font-size:.9rem;align-items:baseline}
+.shortcut-list dt{white-space:nowrap}
+.shortcut-list dd{margin:0;color:var(--ink-soft)}
+.shortcut-list kbd{font-family:var(--mono);font-size:.76rem;color:var(--ink);
+  background:var(--bg-soft);border:1px solid var(--line-strong);
+  border-bottom-width:2px;border-radius:5px;padding:1px 7px}

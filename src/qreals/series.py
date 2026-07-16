@@ -35,9 +35,14 @@ def normalise(s: Series) -> Series:
         c.pop()
     if not c:
         return 0, []
-    while c and c[0] == 0:
-        c.pop(0)
-        v += 1
+    # After the trailing strip the last entry is nonzero, so this scan stops.
+    # One slice replaces the old pop(0) loop, which was quadratic in the run
+    # of leading zeros (each pop shifts the whole list).
+    lead = 0
+    while c[lead] == 0:
+        lead += 1
+    if lead:
+        return v + lead, c[lead:]
     return v, c
 
 

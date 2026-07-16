@@ -70,6 +70,10 @@ core):
                     against the full b-file (`oeis`, needs requests)
 """
 
+# _ground_types must come first: it sets SYMPY_GROUND_TYPES when python-flint
+# is installed, and that only works before sympy's first import (pulled in by
+# every module below).
+from . import _ground_types as _ground_types
 from .arithmetic import (
     finite_xnegx,
     negation_sum,

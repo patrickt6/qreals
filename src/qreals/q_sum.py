@@ -41,7 +41,7 @@ import sympy as sp
 
 from ._parsing import parse_real
 from .continued_fraction import make_even_length
-from .gosper import _state_matrix, kron, q_block
+from .gosper import _state_matrix, kron, q_block, q_convergent_matrix
 from .rational import q
 
 
@@ -62,12 +62,13 @@ def transfer_matrix(cf: list[int]) -> sp.Matrix:
         builds the Kronecker product of the two such matrices (one for x, one
         for y) inside the bihomographic state; that 4x4 view is the V (x) V
         operator picture.
+
+    The block product itself lives in continuant.continuant_matrix (the one
+    implementation, reached through gosper.q_convergent_matrix); this wrapper
+    adds only the even-length normalisation.
     """
     cf = make_even_length([int(t) for t in cf])
-    matrix = sp.eye(2)
-    for i, a in enumerate(cf):
-        matrix = matrix * q_block(i, a)
-    return matrix
+    return q_convergent_matrix(cf)
 
 
 # ----------------------------------------------------------------------------

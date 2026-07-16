@@ -4,8 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>brick lattice explorer</title>
-<!-- Fonts come from the injected shared app.css and the vendored MathJax,
-     never a CDN, so the page renders fully offline. -->
+<link rel="icon" href="/favicon.ico" type="image/svg+xml">
+<!-- Fonts come from the shared app.css and the vendored MathJax, never a
+     CDN, so the page renders fully offline. -->
+<!-- Restore the theme the SPA saved (qreals.app.v1, the active profile's
+     theme) before any styles apply, falling back to prefers-color-scheme, so
+     dark-mode users do not get a white flash page. -->
+<script>
+(function () {
+  var theme = "";
+  try {
+    var s = JSON.parse(localStorage.getItem("qreals.app.v1")) || {};
+    var p = s.profiles && s.profiles[s.activeProfileId];
+    if (p && p.theme) theme = String(p.theme);
+  } catch (err) { /* no stored state; fall through to the media query */ }
+  if (!theme && window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches) {
+    theme = "dark";
+  }
+  if (theme) document.documentElement.dataset.theme = theme;
+})();
+</script>
 <script>
 window.MathJax = {
   tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
@@ -16,11 +35,11 @@ window.MathJax = {
 <!-- MathJax is vendored under web/vendor/ and served locally, so the page,
      including all math and fonts, renders with no network access. -->
 <script id="MathJax-script" async src="/vendor/mathjax/es5/tex-chtml.js"></script>
-<!-- The shared app.css is injected into the next style block by the server so
-     this page wears the same design tokens, fonts, and components as the
-     calculator. The block after it adds only the lattice-specific pieces
-     (board, nodes, edges). -->
-<style>__CSS__</style>
+<!-- The shared app.css is linked as a revalidated static file so this page
+     wears the same design tokens, fonts, and components as the calculator.
+     The block after it adds only the lattice-specific pieces (board, nodes,
+     edges). -->
+<link rel="stylesheet" href="/static/app.css">
 <style>
   /* Lattice-specific styles, built on the shared app tokens. */
   .lat-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:26px;

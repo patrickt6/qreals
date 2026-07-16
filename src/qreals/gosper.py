@@ -44,8 +44,9 @@ from fractions import Fraction
 
 import sympy as sp
 
+from .continuant import continuant_matrix, mgo_block
 from .continued_fraction import make_even_length
-from .rational import q, q_int, q_int_qinv
+from .rational import q
 
 # Bilinear operation coefficients in monomial order (XY, X, Y, 1), two rows.
 # These are the only operations the engine is verified for in this package.
@@ -64,12 +65,12 @@ def q_cf(fr: Fraction) -> list[int]:
 def q_block(i: int, a: int) -> sp.Matrix:
     """The MGO 2x2 q-continuant block at 0-indexed position i with digit a.
 
-    Even i (1-indexed odd) carries [a]_q with q^{a} above; odd i (1-indexed even)
-    carries [a]_{1/q} with q^{-a} above, matching `rational.mgo_build`.
+    Even i (1-indexed odd) carries [a]_q with q^{a} above; odd i (1-indexed
+    even) carries [a]_{1/q} with q^{-a} above. The entries come from
+    `continuant.mgo_block`, the one place that states the recurrence.
     """
-    if i % 2 == 0:
-        return sp.Matrix([[q_int(a), q**a], [1, 0]])
-    return sp.Matrix([[q_int_qinv(a), q ** (-a)], [1, 0]])
+    b00, b01, b10, b11 = mgo_block(i, a)
+    return sp.Matrix([[b00, b01], [b10, b11]])
 
 
 def kron(left: sp.Matrix, right: sp.Matrix) -> sp.Matrix:
@@ -82,11 +83,11 @@ def kron(left: sp.Matrix, right: sp.Matrix) -> sp.Matrix:
 
 
 def q_convergent_matrix(cf: list[int]) -> sp.Matrix:
-    """Product of MGO q-blocks for an even-length CF; first column is (R, S)."""
-    m = sp.eye(2)
-    for i, a in enumerate(cf):
-        m = m * q_block(i, a)
-    return m
+    """Product of MGO q-blocks for an even-length CF; first column is (R, S).
+
+    Delegates to `continuant.continuant_matrix`, the shared block product.
+    """
+    return continuant_matrix(cf)
 
 
 def q_real_rational(fr: Fraction) -> sp.Expr:

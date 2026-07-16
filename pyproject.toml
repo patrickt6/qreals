@@ -1,6 +1,6 @@
 [project]
 name = "qreals"
-version = "0.1.3"
+version = "0.1.5"
 description = "q-deformed rationals and reals via MGO continued fractions"
 authors = [{name = "Patrick Taylor"}]
 readme = "README.md"
@@ -66,12 +66,24 @@ features = ["numpy>=1.21"]
 # for anyone following older instructions. Start the app with: qreals serve
 serve = []
 # Fast exact polynomial arithmetic (FLINT). The denom dossier meets its
-# one-second budget at d = 10000 with this installed; sympy picks it up
-# automatically when present.
+# one-second budget at d = 10000 with this installed. sympy does not engage
+# flint on its own: qreals._ground_types sets SYMPY_GROUND_TYPES=flint at
+# import when flint is present (and the variable is not already set).
 fast = ["python-flint>=0.6"]
 # The documentation site: mkdocs-material for the pages, mkdocstrings for the
 # API reference generated from the docstrings. Not needed to use qreals.
 docs = ["mkdocs-material>=9", "mkdocstrings[python]>=0.24"]
+# The MCP server (qreals mcp): exposes the exact engine as Model Context
+# Protocol tools over stdio so LLM clients (Claude Desktop, Claude Code, and
+# others) can compute q-deformations instead of guessing them.
+mcp = ["mcp[cli]>=1.2"]
+# qreals explain: sends a computed result to the Claude API for a prose
+# summary. The engine computes, the model only narrates; needs
+# ANTHROPIC_API_KEY in the environment.
+ai = ["anthropic>=0.40"]
+# Tab completion for the qreals command (bash/zsh/fish via argcomplete).
+# Detected at runtime; without the package the CLI simply has no completion.
+completion = ["argcomplete>=3"]
 dev = [
     "pytest>=7",
     "ruff",
@@ -81,6 +93,9 @@ dev = [
     "requests>=2",
     "numpy>=1.21",
     "platformdirs>=3",
+    # The serve test suite exercises the Flask fallback mirror as well as
+    # the FastAPI app, so the dev environment carries both frameworks.
+    "flask>=3",
 ]
 
 [project.scripts]
@@ -90,12 +105,24 @@ qreals = "qreals.app:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+# Keep editor/filesystem duplicate files (for example "_parsing 2.py" created
+# by a copy action) out of every built artifact, wheel and sdist alike.
+exclude = ["**/* [0-9].py", "**/* [0-9].*", "**/__pycache__"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/qreals"]
 # web/ is a real package (has __init__.py), so `packages` already ships it; its
 # .css/.js/.html assets are tracked files and hatchling includes them by default.
 # (A force-include of src/qreals/web here would collide on web/__init__.py and
 # break the wheel build, so do not re-add it.)
+
+[tool.hatch.build.targets.sdist]
+# Ship a minimal source tree: the package, the readme, the licence, and the
+# build config only. Without this, hatchling's sdist would sweep in the whole
+# working tree (tests, working notes, caches, image files), so the source
+# distribution is pinned to exactly what a build needs.
+only-include = ["src/qreals", "README.md", "LICENSE", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -127,6 +154,9 @@ module = [
     "fastapi.*",
     "uvicorn.*",
     "flask.*",
+    "argcomplete.*",
+    "mcp.*",
+    "anthropic.*",
     "qprov",
 ]
 ignore_missing_imports = true
