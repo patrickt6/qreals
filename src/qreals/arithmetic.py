@@ -158,7 +158,27 @@ def q_neg(x: str, N: int) -> LaurentCoeffs:
 
 
 def negation_sum(x: str, N: int) -> LaurentCoeffs:
-    """[x]_q + [-x]_q (x >= 0) as (valuation, N coefficients), Ovsienko Ex. 6.4."""
+    """[x]_q + [-x]_q as (valuation, N coefficients), Ovsienko Ex. 6.4.
+
+    Routed through `negation.negation_sum_fixed`: for rational x this is the
+    exact Laurent expansion of a closed-form rational function of q (never a
+    finite-order guess), and for x = a + b*sqrt(D) it is a certified,
+    locked-coefficient series. Any other real x (e.g. pi) falls back to the
+    original truncated-series computation below, kept here for that purpose.
+    """
+    from .negation import negation_sum_fixed
+
+    return negation_sum_fixed(x, N)
+
+
+def _negation_sum_truncated(x: str, N: int) -> LaurentCoeffs:
+    """The original truncated-series computation of [x]_q + [-x]_q (x >= 0).
+
+    Kept as the fallback path for reals that are neither rational nor a
+    simple a + b*sqrt(D) quadratic irrational; `negation.negation_sum_fixed`
+    calls this by name when its exact and locked-coefficient routes do not
+    apply.
+    """
     if N < 1:
         raise ValueError("N must be at least 1")
     prec = _negation_prec(x, N)

@@ -4194,7 +4194,7 @@ def _main_help_epilog() -> str:
         ),
         (
             "Visualize and sweep",
-            ["satlas", "saturation", "degcollapse", "oeis-sweep", "hunt"],
+            ["satlas", "saturation", "degcollapse", "oeis-sweep", "hunt", "negation-sweep"],
         ),
         ("Verify and provenance", ["check", "certify", "conj"]),
         (
@@ -4759,6 +4759,30 @@ def _build_parser() -> argparse.ArgumentParser:
     p_negsum.add_argument("x")
     p_negsum.add_argument("n", type=int)
     add_json(p_negsum)
+
+    p_negsweep = sub.add_parser(
+        "negation-sweep",
+        help="sweep G(x)=[x]_q+[-x]_q over a grid a+b*sqrt(D), certified verdicts",
+    )
+    p_negsweep.add_argument("--D", type=int, required=True, help="squarefree D > 1")
+    p_negsweep.add_argument("--qa-max", type=int, required=True, help="max denominator of a")
+    p_negsweep.add_argument("--qb-max", type=int, required=True, help="max denominator of b")
+    p_negsweep.add_argument("--pa-max", type=int, required=True, help="max |numerator| of a")
+    p_negsweep.add_argument("--pb-max", type=int, required=True, help="max numerator of b")
+    p_negsweep.add_argument(
+        "--depth", type=int, default=120, help="Laurent coefficients attempted (default 120)"
+    )
+    p_negsweep.add_argument(
+        "--min-zero-run",
+        type=int,
+        default=30,
+        help="consecutive zero coefficients required to call the tail finite (default 30)",
+    )
+    p_negsweep.add_argument("--out", required=True, help="output directory for CSV shards + SUMMARY.md")
+    p_negsweep.add_argument("--workers", type=int, default=1, help="worker processes (default 1)")
+    p_negsweep.add_argument(
+        "--resume", action="store_true", help="skip grid points already present in --out"
+    )
 
     p_radius = sub.add_parser("radius", help="radius-of-convergence estimate of [x]_q")
     p_radius.add_argument("x")
@@ -5646,6 +5670,29 @@ def _run_explain(args: argparse.Namespace) -> int:
     return explain_mod.run_cli(args.file, model=args.model)
 
 
+def _run_negation_sweep(args: argparse.Namespace) -> int:
+    """Run the G(x) = [x]_q + [-x]_q evidence sweep over a + b*sqrt(D)."""
+    from . import negation_sweep
+
+    if args.D <= 1:
+        print("error: --D must be a squarefree integer > 1", file=sys.stderr)
+        return 2
+    out = negation_sweep.run_sweep(
+        args.D,
+        args.qa_max,
+        args.qb_max,
+        args.pa_max,
+        args.pb_max,
+        args.depth,
+        args.min_zero_run,
+        args.out,
+        workers=args.workers,
+        resume=args.resume,
+    )
+    print(f"wrote sweep output to {out}")
+    return 0
+
+
 # Dispatch table for the commands that own their exit codes and output
 # formats (checkpointed scans, exports, the certificate flow, the web UI).
 # Everything else renders one Result and goes through _HEADLESS_HANDLERS.
@@ -5664,6 +5711,7 @@ _META_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "dataset": _run_dataset,
     "mcp": _run_mcp,
     "explain": _run_explain,
+    "negation-sweep": _run_negation_sweep,
 }
 
 
