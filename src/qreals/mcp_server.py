@@ -174,30 +174,100 @@ def jump_gap(p: int, s: int) -> dict[str, Any]:
     return dict(_jsonable(compute_jumpgap(int(p), int(s))["data"]))
 
 
+def _fraction_jsonable(value: Any) -> Any:
+    """A Fraction as an int (denominator 1) or a "p/q" string, else pass through."""
+    from fractions import Fraction
+
+    if isinstance(value, Fraction):
+        return value.numerator if value.denominator == 1 else f"{value.numerator}/{value.denominator}"
+    return value
+
+
+def _polynomial_jsonable(poly: dict[int, Any]) -> dict[str, Any]:
+    """A {exponent: Fraction} Laurent dict as JSON-safe {"exponent": coeff}."""
+    return {str(deg): _fraction_jsonable(coeff) for deg, coeff in sorted(poly.items())}
+
+
 def negation_panel(x: str, n: int = 48) -> dict[str, Any]:
-    """The negation sum [x]_q + [-x]_q and a finiteness verdict (HEURISTIC).
+    """The negation sum G(x) = [x]_q + [-x]_q with a certified finiteness verdict.
+
+    Backed by the exact engine (`negation.negation_sum_exact`), not a
+    truncation-order guess. For rational x the verdict is proven by the exact
+    reversal rule [-x]_q := -q^-1 [x]_{1/q}: "finite" means the reduced
+    denominator of the resulting exact rational function in q is a single
+    monomial, so G(x) is a genuine finite Laurent polynomial, and "infinite"
+    means it provably is not. For irrational quadratic x (a + b*sqrt(D)),
+    successive Hirzebruch-Jung convergents are used to lock a growing window
+    of leading coefficients; "finite" here means enough of the locked window
+    (min_zero_run consecutive zero coefficients past a low-degree start) is an
+    exact zero tail, "infinite" means an exact nonzero locked coefficient was
+    found in that tail, and "insufficient_depth" means neither has happened
+    yet within the requested depth (ask for more depth, not more trust).
 
     Args:
-        x: a real number as a string, e.g. "sqrt(19)" or "1+sqrt(2)".
-        n: the Laurent order of the computed window (clamped to 8..512).
+        x: a real number as a string, e.g. "sqrt(19)", "1+sqrt(2)", "1/3".
+            Supported forms are a plain rational or a + b*sqrt(D) with a, b
+            rational and D a squarefree integer > 1.
+        n: requested Laurent depth; mapped to the exact engine's depth
+            argument as max(n, 120) so shallow requests still lock enough
+            coefficients to reach a real verdict (clamped to 8..512 first).
 
-    Returns the valuation and coefficients of [x]_q + [-x]_q through order n
-    and the boolean ``finite``. IMPORTANT: the finite verdict is a
-    truncation-order heuristic, not a proof. It only says the sum looks
-    terminated within the order-n window (``verdict_kind`` names the order);
-    a deeper window can overturn it, and sqrt(19) is a known example where
-    shallow windows mislead. Treat ``finite`` as evidence, never as a
-    theorem.
+    Returns:
+        x, depth (the depth actually used), verdict (one of "finite",
+        "infinite", "finite_looking", "insufficient_depth"), certified (True
+        only for "finite"/"infinite", both proofs, never observations),
+        valuation, locked_depth (-1 for an exact finite rational verdict,
+        meaning complete and depth-independent), first_nonzero_tail_index
+        (set when infinite), polynomial (the {exponent: coefficient} Laurent
+        map, JSON-safe, present when finite or finite_looking), and
+        polynomial_string (a human-readable q-polynomial rendering of the
+        same data). A "finite_looking" verdict is strong evidence over the
+        locked window, not a proof; treat it accordingly.
     """
-    from .app import compute_negsum
+    from .negation import negation_sum_exact, polynomial_string
 
     n = _clamp(n, 8)
-    data = dict(_jsonable(compute_negsum(x, n)["data"]))
-    data["verdict_kind"] = f"heuristic-order-{n}"
-    data["verdict_note"] = (
-        "finite is a truncation-order heuristic at the order above, not a proof"
-    )
-    return data
+    depth = max(n, 120)
+    result = negation_sum_exact(x, depth=depth)
+    certified = result.verdict in ("finite", "infinite")
+    out: dict[str, Any] = {
+        "x": x,
+        "depth": depth,
+        "verdict": result.verdict,
+        "certified": certified,
+        "valuation": result.valuation,
+        "locked_depth": result.locked_depth,
+        "first_nonzero_tail_index": result.first_nonzero_tail_index,
+    }
+    if result.verdict in ("finite", "finite_looking"):
+        out["polynomial"] = _polynomial_jsonable(result.polynomial)
+        out["polynomial_string"] = polynomial_string(result.polynomial)
+    else:
+        out["polynomial"] = {}
+        out["polynomial_string"] = None
+    if result.verdict == "finite":
+        out["note"] = (
+            "finite is proven exactly by the reversal rule: the reduced "
+            "denominator of the exact rational function in q is a monomial, "
+            "so the polynomial above is complete and exact"
+        )
+    elif result.verdict == "infinite":
+        out["note"] = (
+            "infinite is proven exactly: a genuinely nonzero locked or exact "
+            "coefficient was found at first_nonzero_tail_index, so no finite "
+            "Laurent polynomial exists"
+        )
+    elif result.verdict == "finite_looking":
+        out["note"] = (
+            "finite_looking is strong evidence over the locked window, not a "
+            "proof; a deeper request could still overturn it"
+        )
+    else:
+        out["note"] = (
+            "insufficient_depth: neither a finite nor an infinite verdict "
+            "was reached within the requested depth; ask for more depth"
+        )
+    return dict(_jsonable(out))
 
 
 def q_add(x: str, y: str, n: int = 16) -> dict[str, Any]:
