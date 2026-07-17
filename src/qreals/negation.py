@@ -485,7 +485,7 @@ def polynomial_string(poly: dict[int, Fraction]) -> str:
     if not poly:
         return "0"
     parts = []
-    for d in sorted(poly):
+    for d in sorted(poly, reverse=True):
         v = poly[d]
         if v == 0:
             continue
