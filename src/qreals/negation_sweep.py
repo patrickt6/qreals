@@ -25,7 +25,15 @@ from math import gcd
 from multiprocessing import Process
 from pathlib import Path
 
-from .negation import WINDOW_LO, classify, default_lock_target, locked_series, polynomial_string
+from .negation import (
+    DEFAULT_WINDOW_LO,
+    classify,
+    default_lock_target,
+    locked_series,
+    polynomial_string,
+    valuation_floor,
+    window_bounds,
+)
 from .quadratic import QuadraticIrrational
 
 CSV_FIELDS = [
@@ -83,22 +91,39 @@ def build_grid(qa_max: int, qb_max: int, pa_max: int, pb_max: int) -> list[Sweep
 
 
 def compute_row(point: SweepGridPoint, D: int, depth: int, min_zero_run: int) -> dict:
-    """One sweep row for a + b*sqrt(D), certified via locked HJ convergents."""
+    """One sweep row for a + b*sqrt(D), certified via locked HJ convergents.
+
+    Window derivation (F1 fix, 2026-07-20): the Laurent floor is derived from
+    the valuation of both [x]_q and [-x]_q instead of the old fixed -12, and
+    the top is raised so division-mixing cannot contaminate the degrees the
+    verdict reads (see `negation.locked_series`). The reported locked_depth
+    counts certified coefficients from the derived floor, so it is larger at
+    large |x| than the pre-fix column for the same locked top degree; the
+    verdict and tail-index columns are directly comparable across versions.
+    """
     t0 = time.perf_counter()
     a = Fraction(point.pa, point.qa)
     b = Fraction(point.pb, point.qb)
     x = QuadraticIrrational.from_ab(a, b, D)
     lock_target = default_lock_target(depth, min_zero_run)
-    # The Laurent window only needs to reach lock_target, not the caller's
-    # full requested depth: classify() never inspects past locked_depth, and
-    # keeping the truncated-matrix window small is what makes the sweep fast.
-    window_depth = lock_target
-    pos_series, pos_depth = locked_series(x, window_depth, lock_target=lock_target)
-    neg_series, neg_depth = locked_series(-x, window_depth, lock_target=lock_target)
+    # The lock only needs to certify through the degree classify() reads
+    # (min_zero_run zeros past tail_start), not the caller's full requested
+    # depth: keeping the certified region small is what makes the sweep fast.
+    vf = min(valuation_floor(x), valuation_floor(-x))
+    top_degree = DEFAULT_WINDOW_LO + lock_target - 1
+    lo, hi = window_bounds(vf, top_degree)
+    eff_depth = hi - lo
+    eff_target = top_degree - lo + 1
+    pos_series, pos_depth = locked_series(
+        x, eff_depth, lock_target=eff_target, window_lo=lo, window_hi=hi
+    )
+    neg_series, neg_depth = locked_series(
+        -x, eff_depth, lock_target=eff_target, window_lo=lo, window_hi=hi
+    )
     locked_depth = min(pos_depth, neg_depth)
-    window = range(WINDOW_LO, WINDOW_LO + locked_depth)
+    window = range(lo, lo + locked_depth)
     g_series = {d: pos_series.get(d, 0) + neg_series.get(d, 0) for d in window}
-    verdict = classify(g_series, locked_depth, min_zero_run=min_zero_run)
+    verdict = classify(g_series, locked_depth, min_zero_run=min_zero_run, window_lo=lo)
     elapsed = time.perf_counter() - t0
     on_axis = a == 0 and b.denominator == 1
     return {
@@ -127,8 +152,16 @@ def _completed_combos(out_dir: Path) -> set[tuple[int, int, int, int]]:
             with open(shard, newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    done.add((int(row["pa"]), int(row["qa"]), int(row["pb"]), int(row["qb"])))
-        except (OSError, csv.Error, KeyError, ValueError):
+                    try:
+                        combo = (int(row["pa"]), int(row["qa"]), int(row["pb"]), int(row["qb"]))
+                    except (KeyError, ValueError, TypeError):
+                        # A torn final row (crash mid-write) has missing fields:
+                        # DictReader fills them with None and int(None) raised an
+                        # uncaught TypeError before 2026-07-20, crashing --resume.
+                        # Skip the bad row; it will simply be recomputed.
+                        continue
+                    done.add(combo)
+        except (OSError, csv.Error):
             continue
     return done
 

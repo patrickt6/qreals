@@ -152,7 +152,15 @@ def laurent_divide(num: LaurentDict, den: LaurentDict, max_deg: int) -> LaurentD
     """num / den as a Laurent series, exact integer-coefficient long division.
 
     Both num and den are truncated Laurent dicts; the quotient is returned up
-    to absolute degree max_deg.
+    to absolute degree max_deg (audit 2026-07-20: earlier versions returned up
+    to max_deg + 2, harmless to in-window consumers but contract-violating).
+
+    CAUTION for callers: if num and den are truncations of longer series, the
+    quotient of the truncations is NOT the truncation of the quotient once num
+    has negative valuation: den terms dropped above the truncation top mix
+    with negative-degree quotient terms and contaminate computed coefficients
+    at degrees >= (truncation top) + 1 + val(num). `locked_series` accounts
+    for this with its window-top cap.
     """
     if not num:
         return {}
@@ -176,55 +184,143 @@ def laurent_divide(num: LaurentDict, den: LaurentDict, max_deg: int) -> LaurentD
             if di:
                 s -= di * c[n - i]
         c[n] = s / d0
-    return {(vn - vd + n): v for n, v in c.items() if v != 0}
+    return {(vn - vd + n): v for n, v in c.items() if v != 0 and (vn - vd + n) <= max_deg}
 
 
 # ----------------------------------------------------------------------------
 # locked-coefficient series for a QuadraticIrrational, via HJ convergents
 # ----------------------------------------------------------------------------
-WINDOW_LO = -12
+DEFAULT_WINDOW_LO = -12
 DEFAULT_LOCK_TARGET = 55
+WINDOW_MARGIN = 8
+
+
+def valuation_floor(x: QuadraticIrrational) -> int:
+    """A certified lower bound on every degree arising while folding [x]_q.
+
+    The first HJ step matrix M(c_1) has entries [c_1]_q (supported on degrees
+    c_1..-1 when c_1 <= 0) and -q^(c_1-1); every later factor M(c_i), i >= 2,
+    has only nonnegative degrees because c_i >= 2. Every entry of every partial
+    product P_n, and every convergent R_n/S_n (S_n has constant term 1, so the
+    quotient valuation equals the numerator valuation), therefore has valuation
+    at least min(0, c_1 - 1) with c_1 = ceil(x). No term can ever appear below
+    this degree, so a window floor at or below it truncates nothing (F1 fix).
+    """
+    return min(0, x.ceil() - 1)
+
+
+def window_bounds(
+    val_floor: int,
+    top_degree: int,
+    margin: int = WINDOW_MARGIN,
+    floor_cap: int = DEFAULT_WINDOW_LO,
+) -> tuple[int, int]:
+    """Derived Laurent window (window_lo, window_hi) certifying degrees <= top_degree.
+
+    val_floor is `valuation_floor(x)` for a single series, or the min over
+    both signs for a negation sum G(x) = [x]_q + [-x]_q.
+
+    * window_lo = min(floor_cap, val_floor - margin): at or below the true
+      valuation, so the fold never drops a term at the bottom (the F1 defect).
+    * window_hi = top_degree - val_floor + margin: even with an exact floor,
+      the long division R_n/S_n mixes denominator terms truncated above
+      window_hi with negative-degree quotient terms, contaminating computed
+      convergents at degrees >= window_hi + 1 + val_floor. Choosing
+      window_hi >= top_degree - val_floor keeps that contamination strictly
+      above top_degree. This top-side requirement is derived from the
+      valuation, NOT from the identity C_n = sum(c_i - 1); the two bounds are
+      separate: the identity governs where convergents agree, the valuation
+      governs the window.
+    """
+    lo = min(floor_cap, val_floor - margin)
+    hi = top_degree - val_floor + margin
+    return lo, hi
 
 
 def locked_series(
     x: QuadraticIrrational,
     depth: int,
-    max_hj_terms: int = 200,
-    lock_target: int = DEFAULT_LOCK_TARGET,
+    max_hj_terms: int | None = None,
+    lock_target: int | None = None,
+    window_lo: int | None = None,
+    window_hi: int | None = None,
 ) -> tuple[LaurentDict, int]:
     """Laurent coefficients of [x]_q locked by agreement of successive HJ convergents.
 
     Returns (series, locked_depth): series holds the coefficients over
-    [WINDOW_LO, WINDOW_LO + depth) that have stabilized between two successive
-    convergents, and locked_depth counts how many of those (from the bottom)
-    agree. Stops early once locked_depth reaches lock_target or the HJ term
-    budget is exhausted.
+    [window_lo, window_hi) that have stabilized between two successive
+    convergents, and locked_depth counts how many of those (from the bottom,
+    i.e. from window_lo) are certified. Stops early once locked_depth reaches
+    lock_target or the HJ term budget is exhausted.
+
+    Certification (2026-07-20). Measured agreement alone can overstate: with a
+    floor above the true valuation the in-window values of successive
+    convergents are corrupted identically and agree on wrong values (the F1
+    defect). locked_depth is therefore the minimum of three quantities:
+
+      1. the measured bottom-up agreement between the two most recent
+         convergents;
+      2. the certified agreement bound from the determinant identity
+         R_n S_{n-1} - S_n R_{n-1} = -q^(C_{n-1}), C_k = sum_{i<=k}(c_i - 1):
+         consecutive convergents agree on every degree below C_{n-1} and
+         differ at C_{n-1};
+      3. the window-top mixing cap: computed convergents can deviate from the
+         true series at degrees >= window_hi + 1 + valuation_floor(x), so
+         nothing at or above that degree is ever reported locked.
+
+    Window defaults: window_lo derives from valuation_floor(x) (never above
+    the legacy -12), window_hi = -12 + depth preserves the historical meaning
+    of `depth`. Callers needing locks through degree T at large |x| must pass
+    window_hi >= T - valuation_floor(x) (see `window_bounds`).
+
+    Term budget: max_hj_terms=None derives a worst-case-sufficient budget
+    (every later c_i = 2 advances C by exactly 1 per term). On exhaustion the
+    locked prefix is short but still certified; callers see the shortfall as
+    locked_depth < lock_target and `classify` reports insufficient_depth.
+
+    lock_target=None locks through the historical top degree
+    DEFAULT_WINDOW_LO + DEFAULT_LOCK_TARGET - 1 = 42 regardless of the floor
+    in use (so an adaptive floor does not silently shrink the locked range).
     """
-    hi = WINDOW_LO + depth
+    vf = valuation_floor(x)
+    if window_lo is None:
+        window_lo = min(DEFAULT_WINDOW_LO, vf - WINDOW_MARGIN)
+    hi = window_hi if window_hi is not None else DEFAULT_WINDOW_LO + depth
+    if lock_target is None:
+        lock_target = (DEFAULT_WINDOW_LO + DEFAULT_LOCK_TARGET - 1) - window_lo + 1
+    if max_hj_terms is None:
+        max_hj_terms = max(200, hi - vf + 16)
     terms, _, _ = hj_terms(x, max_hj_terms)
     M: Mat = _IDENTITY
     prev_conv: LaurentDict | None = None
+    prev_C: int | None = None
     locked_depth = 0
     final_conv: LaurentDict | None = None
-    window = list(range(WINDOW_LO, hi))
+    window = list(range(window_lo, hi))
+    # cap 3: degrees >= hi + 1 + vf can be contaminated through the division
+    top_cap = len(window) if vf >= 0 else max(0, (hi + 1 + vf) - window_lo)
+    cum_C = 0
     for c in terms:
-        M = _mat_mul(M, _M(c), WINDOW_LO, hi)
+        M = _mat_mul(M, _M(c), window_lo, hi)
+        cum_C += c - 1
         try:
             conv = laurent_divide(M[0], M[2], max_deg=hi)
         except ZeroDivisionError:
             continue
-        if prev_conv is not None:
+        if prev_conv is not None and prev_C is not None:
             d = 0
             for deg in window:
                 if conv.get(deg, 0) == prev_conv.get(deg, 0):
                     d += 1
                 else:
                     break
-            locked_depth = d
+            cert = max(0, prev_C - window_lo)
+            locked_depth = min(d, cert, top_cap)
             final_conv = conv
             if locked_depth >= lock_target:
                 break
         prev_conv = conv
+        prev_C = cum_C
         final_conv = conv
     series = {deg: final_conv.get(deg, 0) for deg in window[:locked_depth]} if final_conv else {}
     return series, locked_depth
@@ -240,25 +336,42 @@ class Verdict:
     polynomial: LaurentDict
 
 
-def default_lock_target(depth: int, min_zero_run: int = 30, tail_start: int = 6, buffer: int = 10) -> int:
+def default_lock_target(
+    depth: int,
+    min_zero_run: int = 30,
+    tail_start: int = 6,
+    buffer: int = 10,
+    window_lo: int = DEFAULT_WINDOW_LO,
+) -> int:
     """A lock target big enough to judge finiteness, but not the whole window.
 
     Locking the entire requested depth is far more expensive than needed: the
     verdict needs locked_depth large enough that the window
-    [WINDOW_LO, WINDOW_LO + locked_depth) contains min_zero_run degrees at or
+    [window_lo, window_lo + locked_depth) contains min_zero_run degrees at or
     past tail_start (see `classify`), so this asks for a modest margin past
     that bound rather than forcing agreement all the way out to `depth`,
-    which matters a lot for sweep throughput at large depth.
+    which matters a lot for sweep throughput at large depth. window_lo must
+    match the floor the locked series was computed with.
     """
-    required = -WINDOW_LO + tail_start + min_zero_run
+    required = -window_lo + tail_start + min_zero_run
     return min(depth, required + buffer)
 
 
-def classify(series: LaurentDict, locked_depth: int, min_zero_run: int = 30, tail_start: int = 6) -> Verdict:
-    """finite_looking / infinite / insufficient_depth from a locked series."""
+def classify(
+    series: LaurentDict,
+    locked_depth: int,
+    min_zero_run: int = 30,
+    tail_start: int = 6,
+    window_lo: int = DEFAULT_WINDOW_LO,
+) -> Verdict:
+    """finite_looking / infinite / insufficient_depth from a locked series.
+
+    window_lo must be the floor the locked series was computed with: locked
+    degrees are window_lo .. window_lo + locked_depth - 1.
+    """
     if locked_depth < tail_start + min_zero_run:
         return Verdict("insufficient_depth", None, {})
-    tail_indices = [WINDOW_LO + i for i in range(locked_depth) if WINDOW_LO + i >= tail_start]
+    tail_indices = [window_lo + i for i in range(locked_depth) if window_lo + i >= tail_start]
     first_nonzero = None
     for d in tail_indices:
         if series.get(d, 0) != 0:
@@ -433,7 +546,11 @@ def negation_sum_exact(
         found directly from that exact expansion; locked_depth is set to
         `depth` in this case, matching how many exact coefficients were
         computed. For quadratic x, verdict is one of "finite_looking",
-        "infinite", "insufficient_depth".
+        "infinite", "insufficient_depth", and locked_depth counts certified
+        coefficients from the derived window floor (min(-12, valuation floor
+        minus margin)), not from the legacy -12: at large |x| the same locked
+        top degree therefore corresponds to a larger locked_depth than before
+        the 2026-07-20 F1 fix.
     """
     kind, value = _parse_quadratic_or_rational(x)
     if kind == "rational":
@@ -460,15 +577,31 @@ def negation_sum_exact(
         )
 
     assert isinstance(value, QuadraticIrrational)
-    target = lock_target if lock_target is not None else default_lock_target(depth, min_zero_run)
-    window_depth = target if lock_target is None else depth
-    pos_series, pos_depth = locked_series(value, window_depth, lock_target=target)
-    neg_series, neg_depth = locked_series(-value, window_depth, lock_target=target)
+    # Window derivation (F1 fix): the floor must sit at or below the true
+    # valuation of BOTH [x]_q and [-x]_q, and the top must be high enough that
+    # division-mixing (see locked_series) cannot contaminate the degrees the
+    # verdict reads. `depth` and `lock_target` keep their historical meaning:
+    # counts anchored at the legacy -12 floor, so small-|x| behaviour is
+    # unchanged and large-|x| windows grow as required.
+    vf = min(valuation_floor(value), valuation_floor(-value))
+    target_legacy = lock_target if lock_target is not None else default_lock_target(depth, min_zero_run)
+    window_top_legacy = target_legacy if lock_target is None else depth
+    top_degree = DEFAULT_WINDOW_LO + window_top_legacy - 1
+    lock_top_degree = DEFAULT_WINDOW_LO + target_legacy - 1
+    lo, hi = window_bounds(vf, top_degree)
+    eff_depth = hi - lo
+    eff_target = lock_top_degree - lo + 1
+    pos_series, pos_depth = locked_series(
+        value, eff_depth, lock_target=eff_target, window_lo=lo, window_hi=hi
+    )
+    neg_series, neg_depth = locked_series(
+        -value, eff_depth, lock_target=eff_target, window_lo=lo, window_hi=hi
+    )
     locked_depth = min(pos_depth, neg_depth)
-    window = list(range(WINDOW_LO, WINDOW_LO + locked_depth))
+    window = list(range(lo, lo + locked_depth))
     g_series = {deg: pos_series.get(deg, 0) + neg_series.get(deg, 0) for deg in window}
     g_series = {k: v for k, v in g_series.items() if v != 0}
-    verdict_obj = classify({**g_series}, locked_depth, min_zero_run=min_zero_run)
+    verdict_obj = classify({**g_series}, locked_depth, min_zero_run=min_zero_run, window_lo=lo)
     coeffs = {deg: pos_series.get(deg, 0) + neg_series.get(deg, 0) for deg in window}
     return NegationSumResult(
         valuation=min(coeffs) if coeffs else 0,

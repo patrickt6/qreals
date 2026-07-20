@@ -59,29 +59,50 @@ def integer_part_prefix(x: str | int | float | sp.Expr) -> list[int]:
 
 
 def coeffs_locked_by_convergent(cf_terms: Sequence[int], n: int) -> tuple[int, int]:
-    """How many Laurent coefficients the n-th convergent of x locks in (note 2).
+    """How many Laurent coefficients the n-th convergent is GUARANTEED to share
+    with [x]_q (note 2, parity-corrected 2026-07-20).
 
-    With continued fraction x = [a_1, a_2, ...] and partial sum
-    S_n = a_1 + ... + a_n, the n-th convergent x_n agrees with [x]_q on every
-    power strictly below q^{S_n - 1}. Returns (S_n, count), where
-    count = S_n - 1 is the number of locked coefficients, i.e. the powers
-    q^0, ..., q^{S_n - 2}. The first power that may differ is q^{S_n - 1}.
+    Background: the bound this function previously implemented came from MGO
+    (arXiv:1908.04365) Proposition 1.1, which asserts that consecutive
+    q-convergents agree on their first E_n - 1 coefficients, with
+    E_k = a_1 + ... + a_k. That proposition is FALSE for odd n: the correct
+    consecutive-convergent identity is
 
-    Note on the off-by-one. Note 2 phrased the cutoff as "below q^{S_n}", which
-    would make count = S_n. Direct computation refutes that: for x = pi,
-    a_1 = 3, a_2 = 7, S_2 = 10, the convergent [3,7] = 22/7 gives
-    [22/7]_q = 1 + q + q^2 + q^9 + ... whereas the true [pi]_q has a 0 at q^9
-    (its next term is at q^10). So [22/7]_q and [pi]_q already differ at
-    q^9 = q^{S_2 - 1}: agreement holds only below q^{S_n - 1}, locking S_n - 1
-    coefficients, not S_n. This matches the existing `continued_fraction`
-    docstring and is the resolution of the numerical tension flagged in note 5.
+        R_n S_{n-1} - S_n R_{n-1} = (-1)^n q^{E(n) - 1},
+
+    with E(n) = E_n for even n and E(n) = E_{n-1} for odd n, so consecutive
+    convergents agree below degree E(n) - 1 and differ there, and the
+    published exponent overstates the odd case by a_n. Smallest counterexample:
+    x = [1, 3, 5], where the published bound predicts agreement in 8 terms and
+    the true agreement is 3.
+
+    What THIS function answers is convergent-versus-LIMIT: summing the
+    telescoping differences x - x_n = sum_{m>n} (x_m - x_{m-1}), whose m-th
+    term has valuation E(m) - 1:
+
+      * n even: the first term (m = n+1, odd) has valuation E_n - 1 and no
+        later term shares it, so the count E_n - 1 is SHARP: x_n agrees with
+        [x]_q on q^0 .. q^{E_n - 2} and differs at q^{E_n - 1}.
+      * n odd: the m = n+1 and m = n+2 terms share valuation E_{n+1} - 1 with
+        opposite signs, so their leading terms cancel and agreement can extend
+        further; E_{n+1} - 1 is a guaranteed LOWER BOUND on the count. It
+        needs a_{n+1}: when cf_terms does not include it, the weaker but
+        still-valid bound E_n - 1 is returned. Observed on pi: n=1 bound 9,
+        true 10; n=3 bound 25, true 26 (the slack is the cancellation).
+
+    The pre-correction return of E_n - 1 for all n understated the odd case
+    and never overstated (safe direction); this version is
+    sharp for even n and tighter, still never overstating, for odd n.
 
     Args:
         cf_terms: the continued-fraction partial quotients [a_1, a_2, ...].
         n: convergent index, 1 <= n <= len(cf_terms).
 
     Returns:
-        (S_n, count) with S_n = a_1 + ... + a_n and count = S_n - 1.
+        (S_n, count) with S_n = E_n = a_1 + ... + a_n, and count = the
+        guaranteed number of agreeing leading coefficients: E_n - 1 (exact)
+        for even n; E_{n+1} - 1 (lower bound) for odd n when a_{n+1} is
+        supplied, else E_n - 1 (lower bound).
     """
     if n < 1:
         raise ValueError(f"n must be >= 1, got {n}")
@@ -97,7 +118,13 @@ def coeffs_locked_by_convergent(cf_terms: Sequence[int], n: int) -> tuple[int, i
             f"S_n >= 1; got S_n = {s_n} (the lemma does not apply to x <= 0, "
             f"and for 0 < x < 1 the leading quotient is 0, so take n >= 2)"
         )
-    return s_n, s_n - 1
+    if n % 2 == 0:
+        count = s_n - 1
+    elif n < len(terms):
+        count = s_n + terms[n] - 1  # E_{n+1} - 1, using a_{n+1}
+    else:
+        count = s_n - 1  # conservative fallback without a_{n+1}
+    return s_n, count
 
 
 def mgo_laurent(x: str | int | float | sp.Expr, order: int) -> list[int]:
