@@ -1789,13 +1789,19 @@ def compute_locked(x: str, n: int) -> Result:
                 "pairs": [
                     ("partial sum S_n", str(s_n)),
                     ("coefficients locked in", str(count)),
-                    ("first power that may differ", f"q^{s_n - 1}"),
+                    ("first power not guaranteed", f"q^{count}"),
                 ],
             },
             {
                 "kind": "note",
                 "text": (
-                    f"the {n}-th convergent agrees with [x]_q on q^0 through q^{s_n - 2}"
+                    f"the {n}-th convergent agrees with [x]_q on q^0 through q^{count - 1}"
+                    + (
+                        " (exact: it differs at the next power)"
+                        if n % 2 == 0
+                        else " (guaranteed lower bound; odd-index agreement can extend"
+                        " further, see the parity correction to MGO Prop 1.1)"
+                    )
                 ),
             },
         ],
