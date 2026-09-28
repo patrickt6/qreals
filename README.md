@@ -35,13 +35,14 @@ The MCP server (`qreals mcp`) exposes 10 typed tools and 3 read-only catalog res
 The test suite checks the engine against values printed by Morier-Genoud
 and Ovsienko (q-rationals such as 5/2, 5/3 and 7/5; the first 21 to 80
 Taylor coefficients of the golden ratio, the silver ratio, sqrt(2), sqrt(3),
-sqrt(5), sqrt(7), e and pi) and against OEIS A004148; against identities
-that hold for every rational (`[x+1]_q = q[x]_q + 1`,
-`[-1/x]_q = -1/(q[x]_q)`, the q = 1 specialization, total positivity);
-against an independent implementation of the negative continued fraction
-formula written inside the tests; and across the package's own alternative
-code paths. Property-based tests (Hypothesis) run the identities on random
-rationals, and mutation testing measures how many injected bugs in the core
+sqrt(5), sqrt(7), e and pi) and against OEIS A004148. It also checks the
+identities `[x+1]_q = q[x]_q + 1` and `[-1/x]_q = -1/(q[x]_q)` and the
+q = 1 specialization on a grid of rationals, negatives included, and total
+positivity on rationals above 1. The engine must also agree with the
+negative continued fraction formula, which the tests implement on their
+own, and its alternative code paths must agree with each other.
+Property-based tests (Hypothesis) repeat the identities on random bounded
+rationals. Mutation testing measures how many injected bugs in the core
 math modules the suite catches. [docs/VERIFICATION.md](docs/VERIFICATION.md)
 lists every check, what it proves and what it does not, how to rerun it,
 and the current results.

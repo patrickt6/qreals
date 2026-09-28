@@ -62,6 +62,9 @@ opened and read for this suite:
   https://oeis.org/A004148/b004148.txt; the terms used are stored in
   `tests/data/A004148.txt`.
 
+Section, example and equation numbers refer to the arXiv versions listed
+above. The journal versions were not checked.
+
 ## The checks
 
 ### 1. Known values from the literature (`tests/test_known_values.py`)
@@ -253,18 +256,20 @@ killed.
 
 ## Findings
 
+The findings below concern the arXiv versions listed under Sources; the
+journal versions may differ.
+
 1. **No bug was found in the engine.** Every published value and every
    identity above holds exactly.
-2. **[MGO22] Proposition 1.1 is stated too broadly.** As printed, it says
-   consecutive convergents `x_(n-1)`, `x_n` agree on `a1 + ... + an - 1`
+2. **[MGO22] Proposition 1.1 is stated too broadly.** As printed in
+   arXiv:1908.04365v3, it says that consecutive convergents `x_(n-1)`, `x_n` agree on `a1 + ... + an - 1`
    terms, with the cross determinant `q^(a1 + ... + an - 1)` (equation 11).
    That holds for even `n`, the case the proof's determinant argument
    covers. For odd `n` the paper's own printed q-rationals give something
    else: `[3/2]_q` ([MGO20] Example 1.2 (c)) and `[7/5]_q` ([MGO20] Example
    1.2 (b)), consecutive convergents of sqrt(2), have cross determinant
    `-q^2`, not `q^4` (`test_eq11_odd_case_from_printed_values`, which uses
-   only the printed polynomials). The engine gives the
-   same `-q^2`. The pattern the suite pins is
+   only the printed polynomials). The engine gives the same `-q^2`. The pattern the suite pins is
    `(-1)^n q^(a1 + ... + a_(2 floor(n/2)) - 1)`. It also matches the paper's
    remark that `[3, 7, 15, 1, 292]` fixes `[pi]_q` "up to degree 317". The
    package's truncation rule (`cf_partials`) still keeps at least `N` stable
@@ -283,6 +288,14 @@ killed.
    Jouteur formula and say so. `negate` on a negative rational input
    therefore starts from the left version, not from `q_rational(-p, s)`.
 
+## Performance note
+
+The README says the fast fold is about 300x faster than the
+inversion-per-term fold at depth 512. No test pins this number. A single
+measurement on 2026-09-28 (Python 3.11, macOS, 512 stable coefficients)
+gave 310x for sqrt(2) (0.030 s against 9.28 s) and 537x for the golden
+ratio (0.042 s against 22.3 s).
+
 ## What remains unverified
 
 - Inputs outside the tested ranges: rationals with numerators above 40 or
@@ -296,3 +309,5 @@ killed.
   `finite_looking` verdicts, `radius`) report finite-order observations. The
   suite runs them but does not check the mathematical claims they suggest.
 - Modules outside the five mutated ones were not mutation tested.
+- The speed ratio in the performance note is one measurement on one
+  machine, not a test.
