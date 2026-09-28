@@ -174,8 +174,8 @@ def compute_exact_rational(x: str, y: str = "") -> Result:
     """Exact [x]_q = P/Q for a q-rational x, or the exact difference [x]_q - [y]_q.
 
     With y empty this is the single exact rational function P(q)/Q(q), factored,
-    with its continued fraction and q = 1 value. With y given it is the June 1
-    board: [x]_q - [y]_q = (P_x Q_y - P_y Q_x)/(Q_x Q_y), reduced and factored,
+    with its continued fraction and q = 1 value. With y given it is the exact
+    difference: [x]_q - [y]_q = (P_x Q_y - P_y Q_x)/(Q_x Q_y), reduced and factored,
     plus the Q_x | Q_y / Q_y | Q_x divisibilities that force Q_x = Q_y up to a
     unit. Everything is exact over Q[q].
     """

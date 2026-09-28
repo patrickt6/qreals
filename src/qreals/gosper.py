@@ -29,7 +29,8 @@ convolving the coefficient lists. This engine reaches the result by a different
 algorithm (a state machine over rational functions in q, never forming the two
 series separately), so agreement between the two is a real cross-check rather
 than a re-run of one code path. The test suite uses it exactly that way; see
-docs/CORRECTNESS.md.
+docs/VERIFICATION.md, section 4, "Agreement between the package's own code
+paths".
 
 Caveat (the load-bearing one). For op="add" this computes [x]_q + [y]_q, the sum
 of the two q-series, NOT [x+y]_q, the q-deformation of the real sum. The MGO map

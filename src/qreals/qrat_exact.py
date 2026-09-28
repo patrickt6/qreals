@@ -7,9 +7,9 @@ two q-rationals,
 
     [x]_q - [y]_q = P_x/Q_x - P_y/Q_y = (P_x Q_y - P_y Q_x) / (Q_x Q_y),
 
-which is the worked example from the June 1 board. Writing N(q) = P_x Q_y -
+which is a worked example. Writing N(q) = P_x Q_y -
 P_y Q_x and D(q) = Q_x Q_y, the difference reduces to a single P(q)/Q(q), and
-the board's observation is that the denominators are tightly linked: Q_x | Q_y
+the observation is that the denominators are tightly linked: Q_x | Q_y
 and Q_y | Q_x can both hold, forcing Q_x = Q_y up to a unit. This module
 reports those divisibilities exactly (polynomial remainders over Q[q]), so the
 conjecture can be checked on any pair instead of by hand.
@@ -60,7 +60,7 @@ class QRatDifference:
         qx_divides_qy: True when Q_x divides Q_y over Q[q].
         qy_divides_qx: True when Q_y divides Q_x over Q[q].
         q_equal_up_to_unit: True when Q_x and Q_y are associates (each divides
-            the other), the board's Q_x = Q_y "up to a unit".
+            the other), i.e. Q_x = Q_y "up to a unit".
         gcd_Q: gcd(Q_x, Q_y) over Q[q].
         value_at_1: the difference at q = 1, equal to the ordinary x - y.
     """

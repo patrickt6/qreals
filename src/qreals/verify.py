@@ -27,7 +27,7 @@ terminating rational function and the series diverges at q=1); the stamp says
 so plainly rather than claiming a pass.
 
 The mathematics follows Morier-Genoud and Ovsienko, "q-deformed rationals and
-q-continued fractions", Forum Math. Sigma 8 (2020); see docs/CORRECTNESS.md.
+q-continued fractions", Forum Math. Sigma 8 (2020); see docs/VERIFICATION.md.
 """
 
 from __future__ import annotations

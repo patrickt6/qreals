@@ -11,8 +11,8 @@ proof. For one input it shows:
 Every source it cites comes from the hard-coded registry in ``qreals.refs``: an
 in-text citation (for example MGO Proposition 1.1) renders as a hyperlink to the
 paper, and each certificate ends with a hyperlinked Sources list. It also points
-the reader at docs/CORRECTNESS.md, where every public function is mapped to its
-theorem.
+the reader at docs/VERIFICATION.md, where each check is mapped to its source
+paper and theorem.
 
 This module is the interface layer behind the optional extra ``qreals[proof]``.
 It imports the core (never the other way round) and degrades cleanly: the
@@ -238,7 +238,7 @@ class Certificate:
             out.append(f"        {ref.url}")
             if ref.doi_url:
                 out.append(f"        {ref.doi_url}")
-        out.append("    Per-function theorem and check mapping: docs/CORRECTNESS.md.")
+        out.append("    Per-function theorem and check mapping: docs/VERIFICATION.md.")
         out.append("")
         out.append(refs.render(appendix_prose, "text", numbers))
         out.append("")
@@ -390,7 +390,7 @@ class Certificate:
             + "\n".join(items)
             + "\n</ul>\n"
             + "<p>Per-function theorem and check mapping: "
-            + "<code>docs/CORRECTNESS.md</code>.</p>\n"
+            + "<code>docs/VERIFICATION.md</code>.</p>\n"
             + appendix
             + "\n<p><em>This is a human-auditable derivation, not a formal machine "
             + "proof; every line above is checkable by hand.</em></p>\n"
@@ -529,7 +529,7 @@ $[a]_{{q^{{-1}}}}$ with $q^{{-a}}$ above ([[cite:mgo-rat|MGO eqn.~1.1]]).
             + items
             + "\n\\end{itemize}\n"
             + "\\noindent Per-function theorem and check mapping: "
-            + "\\texttt{docs/CORRECTNESS.md}.\n\n"
+            + "\\texttt{docs/VERIFICATION.md}.\n\n"
             + appendix
             + "\n\\medskip\n"
             + "\\noindent This is a human-auditable derivation, not a formal "

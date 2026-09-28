@@ -5,7 +5,7 @@ Public API:
     q_real_truncated(x, N)  first N stable Taylor coefficients of [x]_q
     q                       the sympy symbol q used by q_rational
 
-the May-14 board lemmas in `expansions`:
+the lemmas in `expansions`:
     integer_part_prefix(x)              forced opening block [floor(x)]_q + 0*q^t
     coeffs_locked_by_convergent(cf, n)  (S_n, count) the n-th convergent pins down
     mgo_laurent(x, order)               [x]_q coefficients c_0..c_order

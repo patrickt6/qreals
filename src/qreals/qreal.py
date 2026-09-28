@@ -15,7 +15,7 @@ values arithmetic.q_add / q_mul compute); unary - delegates to q_neg:
 Operators carry the same caveats as the functions they call: + and * are the
 series sum and product [x]_q +/* [y]_q, not [x +/* y]_q, and unary - is the
 Jouteur PGL_2(Z) negation [-x]_q, not coefficient negation. See
-docs/CORRECTNESS.md.
+docs/HOW-IT-WORKS.md, section 5, "Module-by-module walkthrough".
 """
 
 from __future__ import annotations

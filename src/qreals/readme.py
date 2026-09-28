@@ -1,9 +1,9 @@
 """Generate the per-tool README sections from the live --help epilogs.
 
 Single source: each shipped tool's worked example lives in its `--help`
-epilog (gate G0.9 pins that epilog to the tool's literal output), and the
-README section for the tool is rendered from the same epilog here, so the
-README can never drift from the CLI.
+epilog (`tests/test_cli.py::test_help_shows_the_epilog` pins that epilog to
+the tool's literal output), and the README section for the tool is rendered
+from the same epilog here, so the README can never drift from the CLI.
 
 Usage:
 

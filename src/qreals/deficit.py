@@ -85,7 +85,8 @@ def deficit(x: str, y: str, op: str = "+", N: int = 12) -> Deficit:
     Reuses the verified pieces: q_real_truncated for [x]_q, [y]_q, and the target
     [x op y]_q; q_add / q_mul for the engine value; and, for rational inputs, the
     bihomographic q_gosper engine and q_rational for the exact closed form. See
-    docs/CORRECTNESS.md.
+    docs/VERIFICATION.md, section 4, "Agreement between the package's own code
+    paths". deficit() itself has no dedicated test.
     """
     if N < 1:
         raise ValueError("N must be at least 1")
@@ -159,9 +160,11 @@ class NegationPanel:
 def negation_panel(x: str, N: int = 12) -> NegationPanel:
     """[x]_q + [-x]_q and whether it is finite, for one real x >= 0 (Ex. 6.4).
 
-    Bundles the verified negation_sum and finite_xnegx so a single call gives the
+    Bundles negation_sum and finite_xnegx so a single call gives the
     sum (as a valuation and coefficient list, since [-x]_q carries negative powers
-    of q) and the finite-or-infinite verdict. See docs/CORRECTNESS.md.
+    of q) and the finite-or-infinite verdict. finite_xnegx's termination
+    criterion is not checked by the test suite; see docs/VERIFICATION.md,
+    "What remains unverified".
     """
     if N < 1:
         raise ValueError("N must be at least 1")

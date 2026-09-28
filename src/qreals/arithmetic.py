@@ -3,7 +3,9 @@ r"""Arithmetic between q-reals: series sum, series product, and q-negation.
 The stable core here works on coefficient lists over the truncated-series kernel
 in `series`, so it stays pure Python (sympy is used only to read the continued
 fraction of x, through `q_real_truncated`). Three things live here, with one
-caveat each, all spelled out in docs/CORRECTNESS.md:
+caveat each (see docs/HOW-IT-WORKS.md, section 5, "Module-by-module
+walkthrough", and docs/VERIFICATION.md, section 4, "Agreement between the
+package's own code paths"):
 
 - `q_add(x, y, N)` and `q_mul(x, y, N)` return the first N Taylor coefficients of
   the series sum [x]_q + [y]_q and the series product [x]_q * [y]_q. These are
@@ -192,10 +194,11 @@ def finite_xnegx(x: str, order: int = 48) -> bool:
     """Does [x]_q + [-x]_q terminate as a finite Laurent polynomial? (Ex. 6.4)
 
     Computed numerically to the given order: the sum is reported finite when its
-    coefficients past the leading block are a long run of zeros. The proven
+    coefficients past the leading block are a long run of zeros. The proposed
     criterion (finite iff x is a trace-zero quadratic, i.e. a pure square root)
-    and the closed identity behind it are in docs/CORRECTNESS.md; this is the
-    operational check, honest about being a finite-order observation.
+    is not checked by the test suite; see docs/VERIFICATION.md, "What remains
+    unverified". This is the operational check, honest about being a
+    finite-order observation.
     """
     if order < 8:
         raise ValueError("order must be at least 8 to judge termination")

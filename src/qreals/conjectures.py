@@ -23,7 +23,7 @@ Registered names:
 
 One deliberately false entry, ``planted-degbound``, is registered but hidden
 from the listing; the test suite uses it to prove the harness finds a minimal
-counterexample (gate G5.1).
+counterexample.
 
 JSON schema (the --json output of ``qreals conj NAME``; keys are stable):
     name               str    the conjecture name
