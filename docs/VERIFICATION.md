@@ -261,12 +261,12 @@ journal versions may differ.
 
 1. **No bug was found in the engine.** Every published value and every
    identity above holds exactly.
-2. **[MGO22] Proposition 1.1 is stated too broadly.** As printed in
-   arXiv:1908.04365v3, it says that consecutive convergents `x_(n-1)`, `x_n` agree on `a1 + ... + an - 1`
+2. **Parity in [MGO22] Proposition 1.1.** In arXiv:1908.04365v3 the
+   proposition gives that consecutive convergents `x_(n-1)`, `x_n` agree on `a1 + ... + an - 1`
    terms, with the cross determinant `q^(a1 + ... + an - 1)` (equation 11).
-   That holds for even `n`, the case the proof's determinant argument
-   covers. For odd `n` the paper's own printed q-rationals give something
-   else: `[3/2]_q` ([MGO20] Example 1.2 (c)) and `[7/5]_q` ([MGO20] Example
+   The suite confirms this for even `n`, the case the proof's determinant
+   argument covers. For odd `n` the printed q-rationals give a different sign
+   and exponent: `[3/2]_q` ([MGO20] Example 1.2 (c)) and `[7/5]_q` ([MGO20] Example
    1.2 (b)), consecutive convergents of sqrt(2), have cross determinant
    `-q^2`, not `q^4` (`test_eq11_odd_case_from_printed_values`, which uses
    only the printed polynomials). The engine gives the same `-q^2`. The pattern the suite pins is
@@ -274,13 +274,13 @@ journal versions may differ.
    remark that `[3, 7, 15, 1, 292]` fixes `[pi]_q` "up to degree 317". The
    package's truncation rule (`cf_partials`) still keeps at least `N` stable
    coefficients in both parities (`test_truncation_is_stable`).
-3. **The gap theorem needs a half-open interval.** [MGO22] Theorem 2 and
-   Proposition 6.2 state `k <= x <= k + 1`, but at `x = k + 1` the
-   q-integer `[k+1]_q` has `c_k = 1`. The suite checks `k <= x < k + 1` and
+3. **Endpoint of the gap theorem.** [MGO22] Theorem 2 and Proposition 6.2
+   are written for `k <= x <= k + 1`. At `x = k + 1` the q-integer
+   `[k+1]_q` has `c_k = 1`, so the suite tests the interval `k <= x < k + 1`. The suite checks `k <= x < k + 1` and
    pins the endpoint behaviour separately (`test_gap_theorem_right_endpoint`).
-4. **[MGO20] Example 1.2 (d) describes `m >= 2`.** The printed pattern
+4. **Range of [MGO20] Example 1.2 (d).** The printed pattern
    opens with `1 + 2q + 3q^2`; at `m = 1` the values `4/3` and `5/3` are
-   those of Example 1.2 (a) and (b).
+   those of Example 1.2 (a) and (b), so the suite applies (d) for `m >= 2`.
 5. **The Jouteur negation is not the MGO q-rational of `-x` on
    rationals.** Its value there is the *left* q-rational ([J25] Theorem
    1.5). The two differ already at `x = 1`: `-q^-2` against `-q^-1`. On

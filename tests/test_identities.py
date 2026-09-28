@@ -371,7 +371,7 @@ def test_gap_theorem_half_open(x: str) -> None:
 
     [MGO22] Theorem 2 states it for k <= x <= k + 1. At the right endpoint
     x = k + 1 the q-integer [k+1]_q = 1 + ... + q^k has c_k = 1, so the
-    closed statement fails there; this test uses the half-open interval,
+    test uses the interval k <= x < k + 1,
     and test_gap_theorem_right_endpoint pins the endpoint behaviour.
 
     Source: [MGO22], Theorem 2 and Proposition 6.2.
