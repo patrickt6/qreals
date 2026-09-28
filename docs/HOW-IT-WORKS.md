@@ -33,6 +33,8 @@ which specializes to the ordinary integer n at q = 1. Run it:
     [4]_(q^-1) = (q**3 + q**2 + q + 1)/q**3
     [n]_q at q = 1: 4   (= 4)
 
+    verified: q=1 matches 4, exact = truncated to 12
+
 (src/qreals/continuant.py:65, `q_int`)
 
 ### 1.2 q-rationals from continued fractions
@@ -79,15 +81,11 @@ Example, the first 12 coefficients of `[sqrt(2)]_q`:
 
     $ qreals coeffs "sqrt(2)" 12
     [sqrt(2)]_q = 1 + q^3 - 2*q^5 + q^6 + 4*q^7 - 5*q^8 - 7*q^9 + 18*q^10 + 7*q^11 + O(q^12)
-    power q^k  coefficient c_k
-    ---------  ---------------
-    q^0        1
-    q^1        0
-    q^2        0
-    q^3        1
-    q^4        0
-    q^5        -2
-    ...
+    (followed by a table of the powers q^k and coefficients c_k)
+
+These twelve values are the ones Morier-Genoud and Ovsienko print for
+`[sqrt(2)]_q` in "On q-deformed real numbers" (arXiv:1908.04365v3,
+Section 4.3); `tests/test_known_values.py` checks the first 26 of them.
 
 (src/qreals/truncated.py:33, `q_real_truncated`)
 
@@ -237,24 +235,21 @@ tried first; `q_real_truncated` falls back to `continuant_series` only when
 
 ## 6. Tests
 
-This public repository does not include a `tests/` directory: `qreals`'
-build configuration excludes the test suite from the published source
-distribution by design (`pyproject.toml`, `[tool.hatch.build.targets.sdist]`,
-`only-include = ["src/qreals", "README.md", "LICENSE", "pyproject.toml"]`),
-and the GitHub repository itself (`git ls-files`, checked 2026-09-28) carries
-no `tests/` directory and no CI workflow. The README's "At a glance" table
-reports 536 `def test_` functions, but that count is generated from a
-development tree that is not part of this published repository, so it
-cannot be reproduced or verified from what is here. The correctness
-guarantees described in this document (for example, that `continuant_fast`
-and `continuant_series` agree, or that a rational's truncated series matches
-its exact rational function) are the properties that suite is designed to
-check, in the development tree; a reader of the public repository can verify
-the engine directly instead, by running the CLI's own worked examples, which
-is what every worked example in this document does. `qreals check
---show-schema` and the `qreals denom` / `qreals conj` worked examples above
-were each re-run against this repository's code to confirm their output
-matches what is printed here.
+The test suite lives in `tests/` and runs on every push and pull request
+(`.github/workflows/tests.yml`, Python 3.11, 3.12 and 3.13). It checks the
+engine against values printed in the literature, against identities that
+hold for every rational, against an independent reference implementation
+written inside the tests, and across the package's own alternative code
+paths. [docs/VERIFICATION.md](VERIFICATION.md) lists every check, what it
+proves and does not prove, how to rerun it, and the current results,
+including the mutation-testing score of the core math modules.
+
+The sdist still ships without the tests (`pyproject.toml`,
+`[tool.hatch.build.targets.sdist]`), so run them from a clone of the
+repository:
+
+    pip install -e ".[dev]"
+    python -m pytest
 
 ## 7. Glossary
 
