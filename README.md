@@ -35,6 +35,8 @@ The MCP server (`qreals mcp`) exposes 10 typed tools and 3 read-only catalog res
 
 <!-- AT-A-GLANCE:END -->
 
+See [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) for a from-zero explanation of the math, the package architecture, and a module-by-module walkthrough.
+
 ## Developers
 
 The live app above covers most visitors. To run qreals locally, as a CLI, a
