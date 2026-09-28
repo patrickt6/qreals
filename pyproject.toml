@@ -86,6 +86,7 @@ ai = ["anthropic>=0.40"]
 completion = ["argcomplete>=3"]
 dev = [
     "pytest>=7",
+    "hypothesis>=6.100",
     "ruff",
     "mypy>=1.8",
     "questionary>=2",
@@ -128,6 +129,24 @@ only-include = ["src/qreals", "README.md", "LICENSE", "pyproject.toml"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra -q"
+
+# Mutation testing of the core math modules; see docs/VERIFICATION.md.
+# Run from a clean checkout: mutmut run, then mutmut results.
+[tool.mutmut]
+source_paths = ["src"]
+only_mutate = [
+    "src/qreals/continuant.py",
+    "src/qreals/continued_fraction.py",
+    "src/qreals/series.py",
+    "src/qreals/truncated.py",
+    "src/qreals/rational.py",
+]
+pytest_add_cli_args_test_selection = [
+    "tests/test_known_values.py",
+    "tests/test_identities.py",
+    "tests/test_properties.py",
+    "tests/test_kernel.py",
+]
 
 [tool.ruff]
 line-length = 88
