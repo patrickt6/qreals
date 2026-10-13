@@ -1,5 +1,12 @@
-# qreals
+<p align="center">
+  <img src="docs/banner.png" alt="qreals: exact q-numbers, in Python and in the browser. A series in q that collapses back to x at q = 1." width="800">
+</p>
 
+<p align="center">
+  <img src="docs/how-it-works.png" alt="How qreals works: pick a fraction p/s or a real x, fold the Morier-Genoud and Ovsienko continued fraction, get an exact rational function or series, and use it from Python, the CLI or the web app" width="800">
+</p>
+
+[![PyPI](https://img.shields.io/pypi/v/qreals.svg)](https://pypi.org/project/qreals/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![tests](https://github.com/patrickt6/qreals/actions/workflows/tests.yml/badge.svg)](https://github.com/patrickt6/qreals/actions/workflows/tests.yml)
